@@ -8,6 +8,7 @@ import './dark-mode.css';
 import UMDatabaseWrapper from './data/UMDatabaseWrapper';
 import CarrotJuicerPage from "./pages/CarrotJuicerPage";
 import RaceDataPage from "./pages/RaceDataPage";
+import MultiRaceParserPage from "./pages/MultiRaceParserPage";
 
 
 export default function App() {
@@ -30,6 +31,7 @@ export default function App() {
                 <Navbar.Collapse id="basic-navbar-nav">
                     <Nav className="mr-auto">
                         <Nav.Link as={Link} to="/racedata">Race Parser</Nav.Link>
+                        <Nav.Link as={Link} to="/multirace">Multi-race parser</Nav.Link>
                         <Nav.Link as={Link} to="/carrotjuicer">Packet Inspector</Nav.Link>
                     </Nav>
                 </Navbar.Collapse>
@@ -38,15 +40,10 @@ export default function App() {
 
         <Container>
             <Switch>
-                <Route path="/carrotjuicer">
-                    <CarrotJuicerPage/>
-                </Route>
-                <Route path="/racedata">
-                    <RaceDataPage/>
-                </Route>
-                <Route path="/">
-                    <RaceDataPage/>
-                </Route>
+                <Route path="/carrotjuicer" component={CarrotJuicerPage as any} />
+                <Route path="/racedata" component={RaceDataPage as any} />
+                <Route path="/multirace" component={MultiRaceParserPage as any} />
+                <Route path="/" component={RaceDataPage as any} />
             </Switch>
         </Container>
     </HashRouter>;

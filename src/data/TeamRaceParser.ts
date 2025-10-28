@@ -16,6 +16,7 @@ export type TeamRaceGroupData = {
 export type CharaRaceData = {
     trainedChara: TrainedCharaData,
     isAce: boolean,
+    raceIndex: number,
 
     distanceType: keyof typeof UMDatabaseUtils.teamRaceDistanceLabels,
     runningStyle: RaceSimulateHorseResultData_RunningStyle,
@@ -96,6 +97,7 @@ export function parse(file: File): Promise<TeamRaceGroupData | undefined> {
                 outputDataList.push({
                     trainedChara: fromRaceHorseData(raceHorseData),
                     isAce: raceHorseData['team_member_id'] === 1,
+                    raceIndex: idx,
 
                     distanceType: raceResult['distance_type'],
                     runningStyle: raceHorseData['running_style'],
