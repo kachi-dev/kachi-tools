@@ -91,12 +91,207 @@ const competeTableColumns: ColumnDescription<CompeteTableData> [] = [
     },
 ];
 
+enum FitRank {
+    S = 8,
+    A = 7,
+    B = 6,
+    C = 5,
+    D = 4,
+    E = 3,
+    F = 2,
+    G = 1,
+}
+
+enum Style {
+    NIGE = 1,
+    SEN = 2,
+    SASI = 3,
+    OI = 4,
+    OONIGE = 0,
+}
+
+const distanceFitSpeedCoef: Record<number, number> = {
+    [FitRank.S]: 1.05,
+    [FitRank.A]: 1.0,
+    [FitRank.B]: 0.9,
+    [FitRank.C]: 0.8,
+    [FitRank.D]: 0.6,
+    [FitRank.E]: 0.4,
+    [FitRank.F]: 0.2,
+    [FitRank.G]: 0.1,
+};
+
+const styleSpeedCoefData: Record<number, Record<number, number>> = {
+    [Style.OONIGE]: {
+        0: 1.063,
+        1: 0.962,
+        2: 0.95,
+        3: 0.95,
+    },
+    [Style.NIGE]: {
+        0: 1.0,
+        1: 0.98,
+        2: 0.962,
+        3: 0.962,
+    },
+    [Style.SEN]: {
+        0: 0.978,
+        1: 0.991,
+        2: 0.975,
+        3: 0.975,
+    },
+    [Style.SASI]: {
+        0: 0.938,
+        1: 0.998,
+        2: 0.994,
+        3: 0.994,
+    },
+    [Style.OI]: {
+        0: 0.931,
+        1: 1.0,
+        2: 1.0,
+        3: 1.0,
+    },
+};
+
+type LastSpurtStats = {
+    success: '✓' | '✗' | '—',
+    lastSpurtStartDistance: number,
+    expectedLastSpurtPosition: number,
+    delayDistance: number,
+    maxSpurtSpeed: number,
+    actualMaxSpeed: number,
+    courseLength: number,
+    staminaSuccess: '✓' | '✗',
+    deathDistanceFromFinish: number,
+};
+
+function calculateLastSpurtStats(
+    raceData: RaceSimulateData,
+    frameOrder: number,
+    trainedChara: TrainedCharaData,
+    runningStyle: number
+): LastSpurtStats {
+    const horseResult = raceData.horseResult[frameOrder];
+    const lastSpurtStartDistance = horseResult.lastSpurtStartDistance!;
+    const lastFrame = raceData.frame[raceData.frame.length - 1];
+    const finishDistance = lastFrame.horseFrame[frameOrder].distance!;
+    
+    let staminaSuccess: '✓' | '✗' = '✓';
+    let deathDistanceFromFinish = 0;
+    
+    for (const frame of raceData.frame) {
+        const horseFrame = frame.horseFrame[frameOrder];
+        if (horseFrame.hp! <= 0) {
+            const deathDistance = horseFrame.distance!;
+            staminaSuccess = '✗';
+            deathDistanceFromFinish = finishDistance - deathDistance;
+            break;
+        }
+    }
+    
+    const winnerIndex = raceData.horseResult.findIndex(hr => hr.finishOrder === 0);
+    let goalInX = 0;
+    
+    if (winnerIndex >= 0 && raceData.frame.length) {
+        const winnerFinish = raceData.horseResult[winnerIndex].finishTimeRaw!;
+        const finishFrameIndex = raceData.frame.findIndex(frame => frame.time! >= winnerFinish);
+        if (finishFrameIndex >= 0) {
+            goalInX = raceData.frame[finishFrameIndex].horseFrame[winnerIndex].distance!;
+        }
+    }
+    
+    const courseLength = goalInX > 0 ? goalInX : Math.max(...raceData.frame.map(frame => frame.horseFrame[frameOrder].distance!));
+    const expectedLastSpurtPosition = (courseLength * 2) / 3;
+    
+    const baseSpeed = 20.0 - (courseLength - 2000) / 1000.0;
+    
+    const distanceType = courseLength <= 1400 ? 1 :
+                         courseLength <= 1800 ? 2 :
+                         courseLength <= 2500 ? 3 : 4;
+    
+    const distanceFit = trainedChara.properDistances[distanceType] as FitRank;
+    const distanceFitCoef = distanceFitSpeedCoef[distanceFit] || 1.0;
+    
+    const styleCoef = styleSpeedCoefData[runningStyle]?.[2] || 1.0;
+    
+    const modifiedSpeed = trainedChara.speed;
+    
+    const maxSpurtSpeed = (baseSpeed * (styleCoef + 0.01) +
+        Math.sqrt(modifiedSpeed / 500.0) * distanceFitCoef) * 1.05 +
+        Math.sqrt(500.0 * modifiedSpeed) * distanceFitCoef * 0.002;
+
+    if (lastSpurtStartDistance <= 0) {
+        return {
+            success: '—',
+            lastSpurtStartDistance: 0,
+            expectedLastSpurtPosition,
+            delayDistance: 0,
+            maxSpurtSpeed,
+            actualMaxSpeed: 0,
+            courseLength,
+            staminaSuccess,
+            deathDistanceFromFinish,
+        };
+    }
+
+    const lastSpurtStartIndex = raceData.frame.findIndex(frame => 
+        frame.horseFrame[frameOrder].distance! >= lastSpurtStartDistance
+    );
+
+    let actualMaxSpeed = 0;
+    if (lastSpurtStartIndex !== -1) {
+        actualMaxSpeed = Math.max(...raceData.frame
+            .slice(lastSpurtStartIndex)
+            .map(frame => frame.horseFrame[frameOrder].speed!)) / 100.0;
+    }
+
+    const delayDistance = lastSpurtStartDistance - expectedLastSpurtPosition;
+    
+    if (Math.abs(delayDistance) > 10) {
+        return {
+            success: '✗',
+            lastSpurtStartDistance,
+            expectedLastSpurtPosition,
+            delayDistance,
+            maxSpurtSpeed,
+            actualMaxSpeed,
+            courseLength,
+            staminaSuccess,
+            deathDistanceFromFinish,
+        };
+    }
+
+    const success = actualMaxSpeed > 0 && actualMaxSpeed >= maxSpurtSpeed ? '✓' : '✗';
+
+    return {
+        success,
+        lastSpurtStartDistance,
+        expectedLastSpurtPosition,
+        delayDistance,
+        maxSpurtSpeed,
+        actualMaxSpeed,
+        courseLength,
+        staminaSuccess,
+        deathDistanceFromFinish,
+    };
+}
+
+function calculateLastSpurtSuccess(
+    raceData: RaceSimulateData,
+    frameOrder: number,
+    trainedChara: TrainedCharaData,
+    runningStyle: number
+): '✓' | '✗' | '—' {
+    return calculateLastSpurtStats(raceData, frameOrder, trainedChara, runningStyle).success;
+}
+
 type CharaTableData = {
     trainedChara: TrainedCharaData,
-    chara: Chara | undefined, // Mob or unknown chara will be undefined.
+    chara: Chara | undefined,
 
-    frameOrder: number, // 馬番, 1-indexed
-    finishOrder: number, // 着順, 1-indexed
+    frameOrder: number,
+    finishOrder: number,
 
     horseResultData: RaceSimulateHorseResultData,
 
@@ -105,6 +300,10 @@ type CharaTableData = {
     motivation: number,
 
     activatedSkills: Set<number>,
+
+    lastSpurtSuccess: '✓' | '✗' | '—',
+    lastSpurtStats: LastSpurtStats,
+    staminaSuccess: '✓' | '✗',
 };
 
 const runningStyleLabel = (horseResultData: RaceSimulateHorseResultData, activatedSkills: Set<number>) => {
@@ -213,6 +412,18 @@ const charaTableColumns: ColumnDescription<CharaTableData>[] = [
         text: 'Wit',
         formatter: (cell, row) => row.trainedChara.wiz,
     },
+    {
+        dataField: 'lastSpurtSuccess',
+        text: 'LS',
+        sort: true,
+        formatter: (cell, row) => <span style={{color: cell === '✓' ? 'green' : cell === '✗' ? 'red' : 'gray'}}>{cell}</span>,
+    },
+    {
+        dataField: 'staminaSuccess',
+        text: 'SS',
+        sort: true,
+        formatter: (cell, row) => <span style={{color: cell === '✓' ? 'green' : 'red'}}>{cell}</span>,
+    },
 ];
 
 const charaTableExpandRow: ExpandRowProps<CharaTableData> = {
@@ -220,7 +431,7 @@ const charaTableExpandRow: ExpandRowProps<CharaTableData> = {
         <Table size="small" className="w-auto m-2">
             <tbody>
             {row.trainedChara.skills.map(cs =>
-                <tr>
+                <tr key={cs.skillId}>
                     <td>{UMDatabaseWrapper.skillNameWithId(cs.skillId)}</td>
                     <td>Lv {cs.level}</td>
                     <td>{row.activatedSkills.has(cs.skillId) ? 'Used' : ''}</td>
@@ -228,6 +439,51 @@ const charaTableExpandRow: ExpandRowProps<CharaTableData> = {
             )}
             </tbody>
         </Table>
+        {row.lastSpurtStats.success !== '—' && (
+            <Table size="small" className="w-auto m-2">
+                <thead>
+                    <tr>
+                        <th colSpan={2}>Last Spurt Stats</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Expected Position:</td>
+                        <td>{row.lastSpurtStats.expectedLastSpurtPosition.toFixed(0)}m</td>
+                    </tr>
+                    <tr>
+                        <td>Actual Position:</td>
+                        <td>{row.lastSpurtStats.lastSpurtStartDistance.toFixed(0)}m</td>
+                    </tr>
+                    <tr>
+                        <td>Delay:</td>
+                        <td style={{color: row.lastSpurtStats.delayDistance > 10 ? 'red' : 'green'}}>
+                            {row.lastSpurtStats.delayDistance > 10 ? '+' : ''}{row.lastSpurtStats.delayDistance.toFixed(0)}m
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Expected Max Speed:</td>
+                        <td>{row.lastSpurtStats.maxSpurtSpeed.toFixed(2)} m/s</td>
+                    </tr>
+                    <tr>
+                        <td>Actual Max Speed:</td>
+                        <td style={{color: row.lastSpurtStats.actualMaxSpeed >= row.lastSpurtStats.maxSpurtSpeed ? 'green' : 'red'}}>
+                            {row.lastSpurtStats.actualMaxSpeed.toFixed(2)} m/s
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Course Length:</td>
+                        <td>{row.lastSpurtStats.courseLength.toFixed(0)}m</td>
+                    </tr>
+                    {row.lastSpurtStats.staminaSuccess === '✗' && (
+                        <tr>
+                            <td>HP Died:</td>
+                            <td style={{color: 'red'}}>{row.lastSpurtStats.deathDistanceFromFinish.toFixed(0)}m from finish</td>
+                        </tr>
+                    )}
+                </tbody>
+            </Table>
+        )}
         <CharaProperLabels chara={row.trainedChara}/>
     </div>,
     showExpandColumn: true,
@@ -601,6 +857,25 @@ class RaceDataPresenter extends React.PureComponent<RaceDataPresenterProps, Race
                 motivation: data['motivation'],
 
                 activatedSkills: getCharaActivatedSkillIds(this.props.raceData, frameOrder),
+
+                lastSpurtSuccess: calculateLastSpurtSuccess(
+                    this.props.raceData,
+                    frameOrder,
+                    trainedCharaData,
+                    horseResult.runningStyle!
+                ),
+                lastSpurtStats: calculateLastSpurtStats(
+                    this.props.raceData,
+                    frameOrder,
+                    trainedCharaData,
+                    horseResult.runningStyle!
+                ),
+                staminaSuccess: calculateLastSpurtStats(
+                    this.props.raceData,
+                    frameOrder,
+                    trainedCharaData,
+                    horseResult.runningStyle!
+                ).staminaSuccess,
             };
         });
 
