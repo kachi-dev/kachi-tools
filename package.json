@@ -1,8 +1,8 @@
 {
-  "name": "hakuraku",
+  "name": "kachi-tools",
   "version": "0.1.0",
   "private": true,
-  "homepage": "https://ayaliz.github.io/hakuraku",
+  "homepage": "https://kachi-dev.github.io/kachi-tools",
   "dependencies": {
     "@aksel/structjs": "^1.0.0",
     "@bufbuild/protobuf": "^1.3.1",
