@@ -1,5 +1,5 @@
 import React from "react";
-import {Alert, Col, Form, Row, Spinner, Table} from "react-bootstrap";
+import {Alert, Button, Col, Form, Modal, Row, Spinner, Table} from "react-bootstrap";
 import BootstrapTable, { ColumnDescription, ExpandRowProps } from "react-bootstrap-table-next";
 import {calculatePlayerWinRates, PlayerWinRates, WinRateInputItem} from "../data/DataAnalysisUtils";
 import {deserializeFromBase64} from "../data/RaceDataParser";
@@ -15,6 +15,9 @@ type MultiRaceParserPageState = {
     selectedName?: string,
     summary?: PlayerWinRates,
     error?: string,
+    races: { raceId: string, timestamp?: number, horseInfoRaw: string, raceScenario: string }[],
+    showRaceModal: boolean,
+    openingRaceId?: string,
 };
 
 export default class MultiRaceParserPage extends React.Component<{}, MultiRaceParserPageState> {
@@ -24,6 +27,8 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
             loading: false,
             results: [],
             nameFrequency: [],
+            races: [],
+            showRaceModal: false,
         };
     }
 
@@ -32,6 +37,7 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
         this.setState({ loading: true, results: [], nameFrequency: [], selectedName: undefined, summary: undefined, error: undefined });
 
         const results: WinRateInputItem[] = [];
+        const races: { raceId: string, timestamp?: number, horseInfoRaw: string, raceScenario: string }[] = [];
         const nameCounts = new Map<string, number>();
 
         const tasks = Array.from(files).map(async (file) => {
@@ -77,6 +83,14 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
                             });
                         }
                         namesInThisTxt.forEach(n => nameCounts.set(n, (nameCounts.get(n) || 0) + 1));
+
+                        // Store race for "View Race"
+                        races.push({
+                            raceId: file.name,
+                            timestamp: (file as any).lastModified ?? undefined,
+                            horseInfoRaw: JSON.stringify(horseInfoParsed),
+                            raceScenario: scenarioRaw.trim(),
+                        });
                     } catch {
                         // ignore malformed .txt
                     }
@@ -102,7 +116,7 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
             summary = calculatePlayerWinRates(filtered, selectedName);
         }
 
-        this.setState({ loading: false, results, nameFrequency, error, selectedName, summary });
+        this.setState({ loading: false, results, nameFrequency, error, selectedName, summary, races });
     }
 
     computeSummaryFor(name: string) {
@@ -187,7 +201,12 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
 
         return <>
             <h5>Player: {summary.playerName}</h5>
-            <div>Races: {summary.totalRaces} / Wins: {summary.wins} / WR: {summary.winRate.toFixed(2)}%</div>
+            <div className="d-flex align-items-center justify-content-between">
+                <div>Races: {summary.totalRaces} / Wins: {summary.wins} / WR: {summary.winRate.toFixed(2)}%</div>
+                <div>
+                    <Button size="sm" variant="secondary" onClick={() => this.setState({ showRaceModal: true })}>View races</Button>
+                </div>
+            </div>
             <BootstrapTable bootstrap4 condensed hover
                             classes="responsive-bootstrap-table"
                             wrapperClasses="table-responsive mt-2"
@@ -196,7 +215,133 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
                             columns={columns}
                             expandRow={expandRow}
             />
+            {this.renderRaceModal()}
         </>;
+    }
+
+    private buildContentNonAnon = (horseInfoRaw: string, scenarioRaw: string): string => {
+        const raceHorseInfo = (() => { try { return JSON.stringify(JSON.parse(horseInfoRaw)); } catch { return horseInfoRaw.trim(); } })();
+        const raceScenario = scenarioRaw.trim();
+        return JSON.stringify({ raceHorseInfo, raceScenario });
+    };
+
+    private openRace = async (raceId: string) => {
+        const { races } = this.state;
+        const r = races.find(x => x.raceId === raceId);
+        if (!r) return;
+        this.setState({ openingRaceId: raceId });
+        try {
+            const content = this.buildContentNonAnon(r.horseInfoRaw, r.raceScenario);
+            const res = await fetch('https://sourceb.in/api/bins', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ files: [{ content }] }),
+            });
+            const data = await res.json();
+            if (data.key) {
+                const url = `${window.location.origin}${window.location.pathname}#/racedata?bin=${data.key}`;
+                window.open(url, '_blank');
+            }
+        } finally {
+            this.setState({ openingRaceId: undefined });
+        }
+    };
+
+    renderRaceModal() {
+        const { showRaceModal, selectedName, races, results, openingRaceId } = this.state;
+        if (!showRaceModal || !selectedName) return null;
+
+        const getIconUrl = (charaId?: number | null): string | null => {
+            if (charaId == null) return null;
+            try { return require(`../data/umamusume_icons/chr_icon_${charaId}.png`); } catch { return null; }
+        };
+
+        const parseNameDate = (name: string): { epoch: number, label: string } | undefined => {
+            const m = name.match(/(\d{8})_(\d{6})/);
+            if (!m) return undefined;
+            const d = m[1], t = m[2];
+            const year = parseInt(d.slice(0, 4), 10);
+            const month = parseInt(d.slice(4, 6), 10) - 1;
+            const day = parseInt(d.slice(6, 8), 10);
+            const hour = parseInt(t.slice(0, 2), 10);
+            const min = parseInt(t.slice(2, 4), 10);
+            const sec = parseInt(t.slice(4, 6), 10);
+            const date = new Date(year, month, day, hour, min, sec);
+            const pad = (n: number) => n.toString().padStart(2, '0');
+            const label = `${year}-${pad(month + 1)}-${pad(day)} ${pad(hour)}:${pad(min)}:${pad(sec)}`;
+            return { epoch: date.getTime(), label };
+        };
+
+        const parsedRaces = races
+            .map(r => ({
+                ...r,
+                list: (() => { try { const parsed = JSON.parse(r.horseInfoRaw); return Array.isArray(parsed) ? parsed : [parsed]; } catch { return []; } })(),
+                dt: (() => {
+                    const byName = parseNameDate(r.raceId);
+                    if (byName) return byName;
+                    if (r.timestamp) {
+                        const d = new Date(r.timestamp);
+                        const pad = (n: number) => n.toString().padStart(2, '0');
+                        return {
+                            epoch: r.timestamp,
+                            label: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`,
+                        };
+                    }
+                    return { epoch: 0, label: '' };
+                })()
+            }))
+            .sort((a, b) => (b.dt?.epoch ?? 0) - (a.dt?.epoch ?? 0));
+
+        return <Modal show onHide={() => this.setState({ showRaceModal: false })} size="xl" dialogClassName="bg-dark text-white">
+            <Modal.Header closeButton className="bg-dark text-white border-secondary">
+                <Modal.Title>Races</Modal.Title>
+            </Modal.Header>
+            <Modal.Body className="bg-dark text-white">
+                <Table striped bordered hover size="sm" className="table-dark">
+                    <tbody>
+                    {parsedRaces.map(r => {
+                        // players in this race
+                        const playerNamesSet = new Set<string>();
+                        r.list.forEach((rh: any) => { if (rh['trainer_name']) playerNamesSet.add(rh['trainer_name']); });
+                        const playerNames = Array.from(playerNamesSet);
+                        playerNames.sort((a, b) => (a === selectedName ? -1 : b === selectedName ? 1 : a.localeCompare(b)));
+
+                        return <tr key={r.raceId}>
+                            {/* Leftmost cell: parsed date/time from filename */}
+                            <td className="text-nowrap align-middle" style={{ minWidth: 170 }}>{r.dt?.label || ''}</td>
+                            {playerNames.map((name) => {
+                                const horses = r.list.filter((rh: any) => rh['trainer_name'] === name).slice(0, 3);
+                                const isWin = results.some(e => e.raceId === r.raceId && e.trainedChara.viewerName === name && e.finishOrder === 0);
+                                return <td key={name} className="text-center align-middle" style={{ minWidth: 160 }}>
+                                    <div className="d-flex justify-content-center mb-1">
+                                        {horses.map((h: any, idx: number) => {
+                                            const url = getIconUrl(h['chara_id']);
+                                            const isHorseWinner = results.some(e => e.raceId === r.raceId && e.trainedChara.trainedCharaId === h['trained_chara_id'] && e.finishOrder === 0);
+                                            return <div key={idx} style={{ position: 'relative', width: 28, height: 28, margin: '0 4px' }}>
+                                                <img src={url || ''} alt="icon" style={{ width: 28, height: 28 }} />
+                                                {isHorseWinner && <div style={{ position: 'absolute', top: -1, right: 0, color: '#d4af37', fontSize: 12, lineHeight: 1, textShadow: '0 1px 2px rgba(0,0,0,0.6), 0 0 1px rgba(0,0,0,0.5)' }}>★</div>}
+                                            </div>
+                                        })}
+                                    </div>
+                                    <div style={{ fontWeight: name === selectedName ? 700 : 400 }}>{name}</div>
+                                    <div style={{ color: isWin ? '#d4af37' : '#888' }}>{isWin ? 'Win' : 'Lose'}</div>
+                                </td>;
+                            })}
+                            {/* Rightmost cell with centered View button */}
+                            <td className="text-center align-middle" style={{ whiteSpace: 'nowrap' }}>
+                                <Button size="sm" variant="primary" onClick={() => this.openRace(r.raceId)} disabled={openingRaceId === r.raceId}>
+                                    {openingRaceId === r.raceId ? 'Opening…' : 'View Race'}
+                                </Button>
+                            </td>
+                        </tr>;
+                    })}
+                    </tbody>
+                </Table>
+            </Modal.Body>
+            <Modal.Footer className="bg-dark text-white border-secondary">
+                <Button variant="secondary" onClick={() => this.setState({ showRaceModal: false })}>Close</Button>
+            </Modal.Footer>
+        </Modal>;
     }
 
     render() {
