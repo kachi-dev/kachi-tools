@@ -21,6 +21,7 @@ export type PlayerWinRates = {
         staminaSamples?: number,
         staminaSurvivalCount?: number,
         staminaSurvivalRate?: number, // percentage (0-100)
+        runningStyle?: number,
     }[],
 };
 
@@ -32,6 +33,7 @@ export type WinRateInputItem = {
     raceId?: string,
     spurtSuccess?: '✓' | '✗' | '—',
     staminaSuccess?: '✓' | '✗',
+    runningStyle?: number,
 };
 
 export function calculatePlayerWinRates(results: WinRateInputItem[], playerName: string): PlayerWinRates {
@@ -70,6 +72,7 @@ export function calculatePlayerWinRates(results: WinRateInputItem[], playerName:
         let spurtCount = 0;
         let staminaSamples = 0;
         let staminaSurvivalCount = 0;
+        const styleCounts = new Map<number, number>();
 
         for (const r of arr) {
             if (r.spurtSuccess !== undefined) {
@@ -87,6 +90,16 @@ export function calculatePlayerWinRates(results: WinRateInputItem[], playerName:
                 staminaSamples += 1;
                 if (r.zeroHpFrameCount === 0) staminaSurvivalCount += 1;
             }
+
+            if (r.runningStyle !== undefined && r.runningStyle > 0) {
+                styleCounts.set(r.runningStyle, (styleCounts.get(r.runningStyle) || 0) + 1);
+            }
+        }
+
+        let mostCommonStyle: number | undefined = undefined;
+        if (styleCounts.size > 0) {
+            mostCommonStyle = Array.from(styleCounts.entries())
+                .sort((a, b) => b[1] - a[1])[0][0];
         }
 
         return {
@@ -105,6 +118,7 @@ export function calculatePlayerWinRates(results: WinRateInputItem[], playerName:
             staminaSamples: staminaSamples || undefined,
             staminaSurvivalCount: staminaSamples ? staminaSurvivalCount : undefined,
             staminaSurvivalRate: staminaSamples ? (staminaSurvivalCount / staminaSamples * 100) : undefined,
+            runningStyle: mostCommonStyle,
         };
     }).sort((a, b) => b.winRate - a.winRate);
 

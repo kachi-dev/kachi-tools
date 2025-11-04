@@ -1,4 +1,4 @@
-import {RaceSimulateData} from "./race_data_pb";
+import {RaceSimulateData, RaceSimulateEventData_SimulateEventType} from "./race_data_pb";
 import {TrainedCharaData} from "./TrainedCharaData";
 
 export enum FitRank {
@@ -194,4 +194,95 @@ export function calculateLastSpurtSuccess(
     runningStyle: number
 ): '✓' | '✗' | '—' {
     return calculateLastSpurtStats(raceData, frameOrder, trainedChara, runningStyle).success;
+}
+
+export type DebuffSetResult = {
+    procs: number;
+    opponents: Set<number>;
+    hits: Set<number>;
+};
+
+// Computes occurrences and targeted indices for a given debuff skill across the race.
+// Note: horseInfoRaw is currently unused but kept for signature compatibility/possible future needs.
+export function computeDebuffSets(
+    raceData: RaceSimulateData,
+    horseInfoRaw: string,
+    skillId: number,
+): DebuffSetResult {
+    const horseCount = raceData.horseResult?.length ?? 0;
+    let procs = 0;
+    const opponents: Set<number> = new Set();
+    const hits: Set<number> = new Set();
+
+    const namesByIdx: Record<number, string> = {};
+    try {
+        const parsed = JSON.parse(horseInfoRaw);
+        const list = Array.isArray(parsed) ? parsed : [parsed];
+        list.forEach((rh: any) => {
+            const idx = (rh['frame_order'] || 1) - 1;
+            if (idx >= 0) namesByIdx[idx] = rh['trainer_name'] || '';
+        });
+    } catch {}
+
+    for (const wrapper of raceData.event) {
+        const event = wrapper.event!;
+        if (event.type !== RaceSimulateEventData_SimulateEventType.SKILL) continue;
+        if (event.paramCount == null || event.paramCount < 2) continue;
+        const evSkillId = event.param[1];
+        if (evSkillId !== skillId) continue;
+
+        procs += 1;
+        const casterIdx = event.param[0] ?? -1;
+        const casterStyle = casterIdx >= 0 ? (raceData.horseResult?.[casterIdx]?.runningStyle ?? 0) : 0;
+        // param[4] is a bitmask of targets when present (>=5 params)
+        if (event.paramCount >= 5) {
+            const targetMask = event.param[4] >>> 0; // ensure unsigned
+            for (let idx = 0; idx < horseCount; idx++) {
+                if (namesByIdx[casterStyle] === namesByIdx[idx]) continue;
+                opponents.add(idx);
+                if ((targetMask & (1 << idx)) === 0) continue;
+                hits.add(idx);
+            }
+        }
+    }
+
+    return { procs, opponents, hits };
+}
+
+export type DebuffProcDetail = {
+	casterIdx: number;
+	opponents: Set<number>;
+	hits: Set<number>;
+};
+
+export function computeDebuffProcDetails(
+	raceData: RaceSimulateData,
+	horseInfoRaw: string,
+	skillId: number,
+): DebuffProcDetail[] {
+	const horseCount = raceData.horseResult?.length ?? 0;
+	const details: DebuffProcDetail[] = [];
+
+	for (const wrapper of raceData.event) {
+		const event = wrapper.event!;
+		if (event.type !== RaceSimulateEventData_SimulateEventType.SKILL) continue;
+		if (event.paramCount == null || event.paramCount < 5) continue;
+		const evSkillId = event.param[1];
+		if (evSkillId !== skillId) continue;
+
+		const casterIdx = event.param[0] ?? -1;
+		const opponents: Set<number> = new Set();
+		const hits: Set<number> = new Set();
+		const targetMask = event.param[4] >>> 0;
+		for (let idx = 0; idx < horseCount; idx++) {
+			if (idx === casterIdx) continue;
+			opponents.add(idx);
+			if ((targetMask & (1 << idx)) === 0) continue;
+			hits.add(idx);
+		}
+
+		details.push({ casterIdx, opponents, hits });
+	}
+
+	return details;
 }

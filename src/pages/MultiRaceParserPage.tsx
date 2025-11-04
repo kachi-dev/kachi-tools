@@ -1,12 +1,20 @@
 import React from "react";
-import {Alert, Button, Col, Form, Modal, Row, Spinner, Table} from "react-bootstrap";
+import {Alert, Button, Form, Modal, Nav, Spinner, Table, Tab} from "react-bootstrap";
 import BootstrapTable, { ColumnDescription, ExpandRowProps } from "react-bootstrap-table-next";
 import {calculatePlayerWinRates, PlayerWinRates, WinRateInputItem} from "../data/DataAnalysisUtils";
 import {deserializeFromBase64} from "../data/RaceDataParser";
+import { computeDebuffSets, computeDebuffProcDetails } from "../data/RaceAnalysisUtils";
+import { RaceSimulateEventData_SimulateEventType } from "../data/race_data_pb";
 import UMDatabaseWrapper from "../data/UMDatabaseWrapper";
 import {calculateLastSpurtStats} from "../data/RaceAnalysisUtils";
 import {fromRaceHorseData} from "../data/TrainedCharaData";
 import CharaProperLabels from "../components/CharaProperLabels";
+import WinsByUmaChart, { WinsByUmaItem } from "../components/WinsByUmaChart";
+import WinsByStyleChart, { WinsByStyleItem } from "../components/WinsByStyleChart";
+import SkillOccurrenceChart from "../components/SkillOccurrenceChart";
+import HitRateByStyleChart from "../components/HitRateByStyleChart";
+import EyesHitRateByStyleChart from "../components/EyesHitRateByStyleChart";
+import * as UMDatabaseUtils from "../data/UMDatabaseUtils";
 
 type MultiRaceParserPageState = {
     loading: boolean,
@@ -18,9 +26,11 @@ type MultiRaceParserPageState = {
     races: { raceId: string, timestamp?: number, horseInfoRaw: string, raceScenario: string }[],
     showRaceModal: boolean,
     openingRaceId?: string,
+    excludePlayerUmas: boolean,
 };
 
 export default class MultiRaceParserPage extends React.Component<{}, MultiRaceParserPageState> {
+    private fileInputRef = React.createRef<HTMLInputElement>();
     constructor(props: {}) {
         super(props);
         this.state = {
@@ -29,6 +39,7 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
             nameFrequency: [],
             races: [],
             showRaceModal: false,
+            excludePlayerUmas: false,
         };
     }
 
@@ -79,6 +90,7 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
                                 finishOrder: finishOrder,
                                 spurtSuccess: spurtStats.success,
                                 staminaSuccess: spurtStats.staminaSuccess,
+                                runningStyle: runningStyle,
                                 raceId: file.name,
                             });
                         }
@@ -158,6 +170,16 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
                         {url && <img src={url} alt="icon" style={{width: 24, height: 24, marginRight: 8}}/>}
                         <span>{chara ? chara.name : row.charaId}</span>
                     </div>;
+                },
+            },
+            {
+                dataField: 'runningStyle',
+                text: 'Style',
+                sort: true,
+                headerStyle: { width: '120px' }, style: { width: '120px', whiteSpace: 'nowrap' },
+                formatter: (cell, row) => {
+                    if (row.runningStyle === undefined || row.runningStyle === 0) return '-';
+                    return UMDatabaseUtils.runningStyleLabels[row.runningStyle] || `${row.runningStyle}`;
                 },
             },
             { dataField: 'races', text: 'Races', sort: true, headerStyle: { width: '80px' }, style: { width: '80px', textAlign: 'right' } },
@@ -348,35 +370,299 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
         const { loading, nameFrequency, selectedName, error, results } = this.state;
 
         return <div className="mt-3">
-            <Row className="align-items-end">
-                <Col md={6}>
-                    <Form.Group controlId="files">
-                        <Form.Label>Upload race files</Form.Label>
-                        <Form.Control type="file" multiple onChange={(e: React.ChangeEvent<HTMLInputElement>) => this.handleFiles(e.currentTarget.files)}/>
-                        <div className="mt-2">
-                            {loading && <><Spinner animation="border" size="sm"/> Parsing files...</>}
-                            {!loading && results.length > 0 && <span>Parsed entries: {results.length} • Players found: {nameFrequency.length}</span>}
-                        </div>
-                    </Form.Group>
-                </Col>
-                <Col md={6}>
-                    <Form.Group controlId="playerSelect">
-                        <Form.Label>Select player</Form.Label>
-                        <Form.Control as="select"
-                                      disabled={loading || nameFrequency.length === 0}
-                                      value={selectedName || ''}
-                                      onChange={e => this.computeSummaryFor((e.target as HTMLSelectElement).value)}>
-                            <option value="" disabled>Select a player</option>
-                            {nameFrequency.map(nf => <option key={nf.name} value={nf.name}>{nf.name} ({nf.count})</option>)}
-                        </Form.Control>
-                    </Form.Group>
-                </Col>
-            </Row>
-
             {error && <Alert variant="warning" className="mt-3">{error}</Alert>}
 
             <div className="mt-3">
-                {this.renderSummary()}
+                <Tab.Container defaultActiveKey="player" id="multirace-tabs">
+                    <div className="bg-dark text-white p-2 rounded border border-secondary d-flex align-items-center justify-content-between">
+                        <Nav variant="pills">
+                            <Nav.Item>
+                                <Nav.Link eventKey="player">Player analysis</Nav.Link>
+                            </Nav.Item>
+                            <Nav.Item>
+                                <Nav.Link eventKey="data">Data analysis</Nav.Link>
+                            </Nav.Item>
+                        </Nav>
+                        <div className="d-flex align-items-center">
+                            <input
+                                ref={this.fileInputRef}
+                                type="file"
+                                multiple
+                                style={{ display: 'none' }}
+                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                                    this.handleFiles(e.currentTarget.files);
+                                    if (this.fileInputRef.current) this.fileInputRef.current.value = '';
+                                }}
+                            />
+                            <Button size="sm" variant="secondary" onClick={() => this.fileInputRef.current?.click()} disabled={loading}>
+                                Upload files
+                            </Button>
+                            <div className="ml-2" style={{ minWidth: 220 }}>
+                                <Form.Control as="select" size="sm" custom
+                                              disabled={loading || nameFrequency.length === 0}
+                                              value={selectedName || ''}
+                                              onChange={e => this.computeSummaryFor((e.target as HTMLSelectElement).value)}>
+                                    <option value="" disabled>Select player</option>
+                                    {nameFrequency.map(nf => <option key={nf.name} value={nf.name}>{nf.name} ({nf.count})</option>)}
+                                </Form.Control>
+                            </div>
+                            <div className="ml-2">
+                                {loading && <><Spinner animation="border" size="sm"/> <span className="text-muted">Parsing…</span></>}
+                                {!loading && results.length > 0 && <span className="text-muted">Parsed: {results.length} • Players: {nameFrequency.length}</span>}
+                            </div>
+                        </div>
+                    </div>
+                    <Tab.Content className="mt-3">
+                        <Tab.Pane eventKey="player">
+                            <div className="mt-3">
+                                {this.renderSummary()}
+                            </div>
+                        </Tab.Pane>
+                        <Tab.Pane eventKey="data">
+                            {(() => {
+                                const { results, selectedName, excludePlayerUmas } = this.state;
+                                const chartResults = (excludePlayerUmas && selectedName)
+                                    ? results.filter(r => r.trainedChara.viewerName !== selectedName)
+                                    : results;
+                                const winCounts = new Map<number, number>();
+                                for (const r of chartResults) {
+                                    if (r.finishOrder === 0) {
+                                        const cid = r.trainedChara.charaId;
+                                        if (cid != null) winCounts.set(cid, (winCounts.get(cid) || 0) + 1);
+                                    }
+                                }
+                                const items: WinsByUmaItem[] = Array.from(winCounts.entries())
+                                    .map(([charaId, wins]) => ({
+                                        charaId,
+                                        wins,
+                                        name: UMDatabaseWrapper.charas[charaId]?.name || `${charaId}`,
+                                    }))
+                                    .sort((a, b) => b.wins - a.wins || a.name.localeCompare(b.name));
+                                // Aggregate wins by running style (winners only)
+                                const styleCounts = new Map<number, number>();
+                                for (const r of chartResults) {
+                                    if (r.finishOrder === 0) {
+                                        const style = r.runningStyle ?? 0;
+                                        if (style > 0) styleCounts.set(style, (styleCounts.get(style) || 0) + 1);
+                                    }
+                                }
+                                const styles: WinsByStyleItem[] = Array.from(styleCounts.entries())
+                                    .map(([style, wins]) => ({
+                                        style,
+                                        wins,
+                                        name: UMDatabaseUtils.runningStyleLabels[style] || `${style}`,
+                                    }))
+                                    .sort((a, b) => b.wins - a.wins || a.name.localeCompare(b.name));
+
+                                const murmurId = 201161; // Mystifying Murmur
+                                const eyesId = 201441;   // All-Seeing Eyes
+                                const lateSurgerSavvyIds = new Set([201541, 201542]); // Late Surger Savvy
+
+                                // Compute debuffer stats from race events
+                                const { races } = this.state;
+                                let totalMurmur = 0;
+                                let totalEyes = 0;
+                                let racesWithEyes = 0;
+                                let racesWithMurmur = 0;
+                                // Eyes (split by whether caster has Late Surger Savvy)
+                                const eyesDenomByStyleWithSavvy: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
+                                const eyesHitsByStyleWithSavvy: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
+                                const eyesDenomByStyleNoSavvy: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
+                                const eyesHitsByStyleNoSavvy: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
+                                const murmurDenomByStyle: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
+                                const murmurHitsByStyle: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
+
+                                for (const r of races) {
+                                    let raceSim: any;
+                                    try {
+                                        raceSim = deserializeFromBase64(r.raceScenario);
+                                    } catch {
+                                        continue;
+                                    }
+                                    const horseResults = raceSim.horseResult || [];
+                                    const horseCount = horseResults.length;
+                                    const murmurSets = computeDebuffSets(raceSim, r.horseInfoRaw, murmurId);
+                                    totalMurmur += murmurSets.procs;
+
+                                    if (murmurSets.procs > 0) {
+                                        racesWithMurmur += 1;
+                                        for (const idx of murmurSets.opponents) {
+                                            const s = horseResults[idx]?.runningStyle ?? 0;
+                                            if (s > 0) murmurDenomByStyle[s as 1|2|3|4] += 1;
+                                        }
+                                        for (const idx of murmurSets.hits) {
+                                            const s = horseResults[idx]?.runningStyle ?? 0;
+                                            if (s > 0) murmurHitsByStyle[s as 1|2|3|4] += 1;
+                                        }
+                                    }
+
+                                    // Eyes split logic per race using debuff proc details
+                                    try {
+                                        const parsed = JSON.parse(r.horseInfoRaw);
+                                        const list: any[] = Array.isArray(parsed) ? parsed : [parsed];
+                                        const skillsByIdx: Record<number, Set<number>> = {};
+                                        list.forEach((rh: any) => {
+                                            const idx = (rh['frame_order'] || 1) - 1;
+                                            const arr = Array.isArray(rh['skill_array']) ? rh['skill_array'] : [];
+                                            skillsByIdx[idx] = new Set<number>(arr.map((s: any) => s['skill_id']));
+                                        });
+
+                                        const eyesDetails = computeDebuffProcDetails(raceSim, r.horseInfoRaw, eyesId);
+                                        if (eyesDetails.length > 0) {
+                                            racesWithEyes += 1;
+                                            totalEyes += eyesDetails.length;
+
+                                            for (const dproc of eyesDetails) {
+                                                const hasSavvy = dproc.casterIdx >= 0 && !!skillsByIdx[dproc.casterIdx] && Array.from(skillsByIdx[dproc.casterIdx].values()).some(id => lateSurgerSavvyIds.has(id));
+                                                if (hasSavvy) {
+                                                    dproc.opponents.forEach(idx2 => {
+                                                        const s = horseResults[idx2]?.runningStyle ?? 0;
+                                                        if (s > 0) eyesDenomByStyleWithSavvy[s as 1|2|3|4] += 1;
+                                                    });
+                                                    dproc.hits.forEach(idx2 => {
+                                                        const s = horseResults[idx2]?.runningStyle ?? 0;
+                                                        if (s > 0) eyesHitsByStyleWithSavvy[s as 1|2|3|4] += 1;
+                                                    });
+                                                } else {
+                                                    dproc.opponents.forEach(idx2 => {
+                                                        const s = horseResults[idx2]?.runningStyle ?? 0;
+                                                        if (s > 0) eyesDenomByStyleNoSavvy[s as 1|2|3|4] += 1;
+                                                    });
+                                                    dproc.hits.forEach(idx2 => {
+                                                        const s = horseResults[idx2]?.runningStyle ?? 0;
+                                                        if (s > 0) eyesHitsByStyleNoSavvy[s as 1|2|3|4] += 1;
+                                                    });
+                                                }
+                                            }
+                                        }
+                                    } catch {}
+                                }
+
+                                const totalRaces = races.length || 1;
+                                const murmurAvg = totalMurmur / totalRaces;
+                                const eyesAvg = totalEyes / totalRaces;
+
+                                const eyesDualData = [1,2,3,4].map(s => ({
+                                    key: s,
+                                    label: UMDatabaseUtils.runningStyleLabels[s] || `${s}`,
+                                    withSavvy: (() => {
+                                        const denom = eyesDenomByStyleWithSavvy[s] || 0;
+                                        const hits = eyesHitsByStyleWithSavvy[s] || 0;
+                                        return denom === 0 ? 0 : (hits / denom) * 100;
+                                    })(),
+                                    withoutSavvy: (() => {
+                                        const denom = eyesDenomByStyleNoSavvy[s] || 0;
+                                        const hits = eyesHitsByStyleNoSavvy[s] || 0;
+                                        return denom === 0 ? 0 : (hits / denom) * 100;
+                                    })(),
+                                }));
+
+                                const murmurStylePercents: { style: number, name: string, percent: number }[] = [1,2,3,4].map(s => {
+                                    const denom = murmurDenomByStyle[s] || 0;
+                                    const hits = murmurHitsByStyle[s] || 0;
+                                    const percent = denom === 0 ? 0 : (hits / denom) * 100;
+                                    return { style: s, name: UMDatabaseUtils.runningStyleLabels[s] || `${s}`, percent };
+                                });
+
+                                return <>
+                                    <div style={{ background: '#0f0f0f', border: '1px solid #2a2a2a', borderRadius: 8, padding: 12 }}>
+                                        <div className="d-flex align-items-center justify-content-between" style={{ marginBottom: 8 }}>
+                                            <div style={{ fontWeight: 600 }}>Wins overview</div>
+                                            <Form.Check
+                                                type="switch"
+                                                id="exclude-player-umas"
+                                                label="Exclude player's umas"
+                                                checked={!!excludePlayerUmas}
+                                                disabled={!selectedName}
+                                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => this.setState({ excludePlayerUmas: e.currentTarget.checked })}
+                                            />
+                                        </div>
+                                        <div className="d-flex flex-wrap" style={{ gap: 12 }}>
+                                    <div style={{ flex: '1 1 420px', minWidth: 320 }}>
+                                        <WinsByUmaChart items={items}/>
+                                    </div>
+                                    <div style={{ flex: '1 1 420px', minWidth: 320 }}>
+                                        <WinsByStyleChart items={styles} />
+                                    </div>
+                                        </div>
+                                    </div>
+                                    {/* Debuffer overview */}
+                                    <div className="mt-3" style={{ background: '#0b0b0b', border: '1px solid #2a2a2a', borderRadius: 8, padding: 12 }}>
+                                        <div className="d-flex align-items-center justify-content-between" style={{ marginBottom: 8 }}>
+                                            <div style={{ fontWeight: 600 }}>Debuffer overview</div>
+                                        </div>
+                                        <div className="d-flex flex-wrap" style={{ gap: 12 }}>
+                                            {/* Skill Occurrence average */}
+                                            {(totalMurmur + totalEyes) === 0 ? (
+                                                <div className="text-muted">No data found.</div>
+                                            ) : (
+                                                <div style={{ flex: '0 0 auto', width: 320 }}>
+                                                    <div style={{ background: '#151515', border: '1px solid #2a2a2a', borderRadius: 8, padding: 12 }}>
+                                                        <div className="d-flex align-items-center justify-content-between" style={{ marginBottom: 8 }}>
+                                                            <div style={{ fontWeight: 600 }}>Skill occurrence frequency</div>
+                                                        </div>
+                                                        <SkillOccurrenceChart data={[
+                                                            { label: 'Mystifying Murmur', value: murmurAvg },
+                                                            { label: 'All-Seeing Eyes', value: eyesAvg },
+                                                        ]} />
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Eye hit-rate by style (split by Late Surger Savvy) */}
+                                            {racesWithEyes === 0 ? (
+                                                <div className="text-muted">No data found.</div>
+                                            ) : (
+                                                <div style={{ flex: '1 1 420px', minWidth: 320 }}>
+                                                    <div style={{ background: '#151515', border: '1px solid #2a2a2a', borderRadius: 8, padding: 12 }}>
+                                                        <div className="d-flex align-items-center justify-content-between" style={{ marginBottom: 8 }}>
+                                                            <div style={{ fontWeight: 600 }}>Eyes hit-rate by style</div>
+                                                            <div className="d-flex align-items-center" style={{ gap: 12 }}>
+                                                                <div className="d-flex align-items-center" style={{ gap: 6 }}>
+                                                                    <div style={{ width: 12, height: 12, borderRadius: 3, background: 'linear-gradient(180deg, #34d399 0%, #059669 100%)', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.08)' }} />
+                                                                    <div style={{ fontSize: 12, color: '#e5e7eb', whiteSpace: 'nowrap' }}>With Late Surger Savvy</div>
+                                                                </div>
+                                                                <div className="d-flex align-items-center" style={{ gap: 6 }}>
+                                                                    <div style={{ width: 12, height: 12, borderRadius: 3, background: 'linear-gradient(180deg, #60a5fa 0%, #2563eb 100%)', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.08)' }} />
+                                                                    <div style={{ fontSize: 12, color: '#cbd5e1', whiteSpace: 'nowrap' }}>Without Late Surger Savvy</div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <EyesHitRateByStyleChart
+                                                            data={eyesDualData}
+                                                            withGradientFrom="#34d399" withGradientTo="#059669"
+                                                            withoutGradientFrom="#60a5fa" withoutGradientTo="#2563eb"
+                                                            height={240}
+                                                            yMax={100}
+                                                            yTicks={[0,25,50,75,100]}
+                                                            yAxisLabel="Hit-rate %"
+                                                            valueFormatter={(v) => `${v.toFixed(1)}%`}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Murmur hit-rate by style */}
+                                            {racesWithMurmur === 0 ? (
+                                                <div className="text-muted">No data found.</div>
+                                            ) : (
+                                                <div style={{ flex: '1 1 420px', minWidth: 320 }}>
+                                                    <div style={{ background: '#151515', border: '1px solid #2a2a2a', borderRadius: 8, padding: 12 }}>
+                                                        <div className="d-flex align-items-center justify-content-between" style={{ marginBottom: 8 }}>
+                                                            <div style={{ fontWeight: 600 }}>Murmur hit-rate by style</div>
+                                                        </div>
+                                                        <HitRateByStyleChart items={murmurStylePercents.map(it => ({ name: it.name, percent: it.percent, key: it.style }))}
+                                                                            gradientFrom="#f59e0b" gradientTo="#b45309" />
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </>;
+                            })()}
+                        </Tab.Pane>
+                    </Tab.Content>
+                </Tab.Container>
             </div>
         </div>;
     }
