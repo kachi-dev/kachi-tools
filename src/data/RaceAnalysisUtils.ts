@@ -233,7 +233,6 @@ export function computeDebuffSets(
 
         procs += 1;
         const casterIdx = event.param[0] ?? -1;
-        const casterStyle = casterIdx >= 0 ? (raceData.horseResult?.[casterIdx]?.runningStyle ?? 0) : 0;
         // param[4] is a bitmask of targets when present (>=5 params)
         if (event.paramCount >= 5) {
             const targetMask = event.param[4] >>> 0; // ensure unsigned

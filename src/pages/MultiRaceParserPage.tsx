@@ -4,7 +4,6 @@ import BootstrapTable, { ColumnDescription, ExpandRowProps } from "react-bootstr
 import {calculatePlayerWinRates, PlayerWinRates, WinRateInputItem} from "../data/DataAnalysisUtils";
 import {deserializeFromBase64} from "../data/RaceDataParser";
 import { computeDebuffSets, computeDebuffProcDetails } from "../data/RaceAnalysisUtils";
-import { RaceSimulateEventData_SimulateEventType } from "../data/race_data_pb";
 import UMDatabaseWrapper from "../data/UMDatabaseWrapper";
 import {calculateLastSpurtStats} from "../data/RaceAnalysisUtils";
 import {fromRaceHorseData} from "../data/TrainedCharaData";
@@ -563,7 +562,6 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
                                         continue;
                                     }
                                     const horseResults = raceSim.horseResult || [];
-                                    const horseCount = horseResults.length;
                                     const murmurSets = computeDebuffSets(raceSim, r.horseInfoRaw, murmurId);
                                     totalMurmur += murmurSets.procs;
 

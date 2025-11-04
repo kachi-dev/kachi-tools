@@ -44,7 +44,6 @@ export default function EyesHitRateByStyleChart(props: EyesHitRateByStyleChartPr
 		yTicks,
 		yAxisLabel,
 		valueFormatter,
-		legendLabels = { withSavvy: 'With Savvy', withoutSavvy: 'Without Savvy' },
 	} = props;
 
 	const maxValue = yMax != null ? yMax : Math.max(1, ...data.flatMap(d => [d.withSavvy, d.withoutSavvy]));
