@@ -70,7 +70,29 @@ export default class RaceDataPage extends React.Component<{}, RaceDataPageState>
     parse() {
         this.setState({parsedRaceData: deserializeFromBase64(this.state.raceScenarioInput.trim())});
         try {
-            this.setState({parsedHorseInfo: JSON.parse(this.state.raceHorseInfoInput)});
+            const parsed = JSON.parse(this.state.raceHorseInfoInput);
+            
+            let actualHorseInfo = parsed;
+            
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                if ('data' in parsed) {
+                    if (parsed.data && 'race_horse_data_array' in parsed.data) {
+                        actualHorseInfo = parsed.data.race_horse_data_array;
+                    } else if (parsed.data && Array.isArray(parsed.data)) {
+                        actualHorseInfo = parsed.data;
+                    }
+                }
+                
+                if ('race_horse_data_array' in parsed && Array.isArray(parsed.race_horse_data_array)) {
+                    actualHorseInfo = parsed.race_horse_data_array;
+                }
+                
+                if ('race_horse_data' in parsed) {
+                    actualHorseInfo = parsed.race_horse_data;
+                }
+            }
+            
+            this.setState({parsedHorseInfo: actualHorseInfo});
         } catch (e) {
             this.setState({parsedHorseInfo: undefined});
         }

@@ -14,6 +14,7 @@ import WinsByStyleChart, { WinsByStyleItem } from "../components/WinsByStyleChar
 import SkillOccurrenceChart from "../components/SkillOccurrenceChart";
 import HitRateByStyleChart from "../components/HitRateByStyleChart";
 import EyesHitRateByStyleChart from "../components/EyesHitRateByStyleChart";
+import VerticalBarChart, { VerticalBarChartItem } from "../components/VerticalBarChart";
 import * as UMDatabaseUtils from "../data/UMDatabaseUtils";
 
 type MultiRaceParserPageState = {
@@ -421,22 +422,104 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
                         <Tab.Pane eventKey="data">
                             {(() => {
                                 const { results, selectedName, excludePlayerUmas } = this.state;
-                                const chartResults = (excludePlayerUmas && selectedName)
-                                    ? results.filter(r => r.trainedChara.viewerName !== selectedName)
+                                
+                                let excludedPlayers = new Set<string>();
+                                
+                                if (excludePlayerUmas) {
+                                    if (selectedName) {
+                                        excludedPlayers.add(selectedName);
+                                    }
+                                    
+                                    const playerRaceCounts = new Map<string, Set<string>>();
+                                    for (const r of results) {
+                                        const playerName = r.trainedChara.viewerName;
+                                        if (playerName) {
+                                            if (!playerRaceCounts.has(playerName)) {
+                                                playerRaceCounts.set(playerName, new Set());
+                                            }
+                                            const raceId = r.raceId || '';
+                                            if (raceId) {
+                                                playerRaceCounts.get(playerName)!.add(raceId);
+                                            }
+                                        }
+                                    }
+                                    
+                                    for (const [playerName, raceIds] of playerRaceCounts.entries()) {
+                                        if (raceIds.size > 5) {
+                                            excludedPlayers.add(playerName);
+                                        }
+                                    }
+                                }
+                                
+                                const chartResults = excludedPlayers.size > 0
+                                    ? results.filter(r => !excludedPlayers.has(r.trainedChara.viewerName))
                                     : results;
+                                const umaFrequency = new Map<number, number>();
+                                const cardIdToCharaId = new Map<number, number>();
+                                for (const r of chartResults) {
+                                    const cid = r.trainedChara.cardId;
+                                    if (cid != null) {
+                                        umaFrequency.set(cid, (umaFrequency.get(cid) || 0) + 1);
+                                        if (!cardIdToCharaId.has(cid)) {
+                                            cardIdToCharaId.set(cid, r.trainedChara.charaId);
+                                        }
+                                    }
+                                }
+                                const umaOverviewItems: VerticalBarChartItem[] = Array.from(umaFrequency.entries())
+                                    .map(([cardId, count]) => {
+                                        const charaId = cardIdToCharaId.get(cardId) ?? 0;
+                                        const charaName = UMDatabaseWrapper.charas[charaId]?.name || '';
+                                        const cardName = UMDatabaseWrapper.cards[cardId]?.name || `${cardId}`;
+                                        const cardNameClean = cardName.trim();
+                                        const hasBrackets = cardNameClean.startsWith('[') && cardNameClean.endsWith(']');
+                                        const cardDisplay = hasBrackets ? cardNameClean : `[${cardNameClean}]`;
+                                        const displayName = charaName && cardNameClean !== charaName 
+                                            ? `${cardDisplay} ${charaName}` 
+                                            : cardNameClean;
+                                        return {
+                                            charaId: charaId,
+                                            cardId: cardId,
+                                            value: count,
+                                            name: displayName,
+                                        };
+                                    })
+                                    .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
+
                                 const winCounts = new Map<number, number>();
+                                const cardIdToCharaIdForWins = new Map<number, number>();
                                 for (const r of chartResults) {
                                     if (r.finishOrder === 0) {
-                                        const cid = r.trainedChara.charaId;
-                                        if (cid != null) winCounts.set(cid, (winCounts.get(cid) || 0) + 1);
+                                        const cardId = r.trainedChara.cardId;
+                                        if (cardId != null) {
+                                            winCounts.set(cardId, (winCounts.get(cardId) || 0) + 1);
+                                            if (!cardIdToCharaIdForWins.has(cardId)) {
+                                                cardIdToCharaIdForWins.set(cardId, r.trainedChara.charaId);
+                                            }
+                                        } else {
+                                            const cid = r.trainedChara.charaId;
+                                            if (cid != null) winCounts.set(cid, (winCounts.get(cid) || 0) + 1);
+                                        }
                                     }
                                 }
                                 const items: WinsByUmaItem[] = Array.from(winCounts.entries())
-                                    .map(([charaId, wins]) => ({
-                                        charaId,
-                                        wins,
-                                        name: UMDatabaseWrapper.charas[charaId]?.name || `${charaId}`,
-                                    }))
+                                    .map(([id, wins]) => {
+                                        const cardId = cardIdToCharaIdForWins.has(id) ? id : undefined;
+                                        const charaId = cardIdToCharaIdForWins.get(id) ?? id;
+                                        const charaName = UMDatabaseWrapper.charas[charaId]?.name || '';
+                                        const cardName = cardId ? (UMDatabaseWrapper.cards[cardId]?.name || `${cardId}`) : '';
+                                        const cardNameClean = cardName.trim();
+                                        const hasBrackets = cardNameClean.startsWith('[') && cardNameClean.endsWith(']');
+                                        const cardDisplay = hasBrackets ? cardNameClean : `[${cardNameClean}]`;
+                                        const displayName = cardId && charaName && cardNameClean !== charaName 
+                                            ? `${cardDisplay} ${charaName}` 
+                                            : cardNameClean || charaName || `${id}`;
+                                        return {
+                                            charaId,
+                                            cardId,
+                                            wins,
+                                            name: displayName,
+                                        };
+                                    })
                                     .sort((a, b) => b.wins - a.wins || a.name.localeCompare(b.name));
                                 // Aggregate wins by running style (winners only)
                                 const styleCounts = new Map<number, number>();
@@ -567,7 +650,7 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
                                 return <>
                                     <div style={{ background: '#0f0f0f', border: '1px solid #2a2a2a', borderRadius: 8, padding: 12 }}>
                                         <div className="d-flex align-items-center justify-content-between" style={{ marginBottom: 8 }}>
-                                            <div style={{ fontWeight: 600 }}>Wins overview</div>
+                                            <div style={{ fontWeight: 600 }}>Uma overview</div>
                                             <Form.Check
                                                 type="switch"
                                                 id="exclude-player-umas"
@@ -578,12 +661,23 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
                                             />
                                         </div>
                                         <div className="d-flex flex-wrap" style={{ gap: 12 }}>
-                                    <div style={{ flex: '1 1 420px', minWidth: 320 }}>
-                                        <WinsByUmaChart items={items}/>
-                                    </div>
-                                    <div style={{ flex: '1 1 420px', minWidth: 320 }}>
-                                        <WinsByStyleChart items={styles} />
-                                    </div>
+                                            <div style={{ flex: '1 1 420px', minWidth: 320 }}>
+                                                <div style={{ background: '#151515', border: '1px solid #2a2a2a', borderRadius: 8, padding: 12 }}>
+                                                    <div className="d-flex align-items-center justify-content-between" style={{ marginBottom: 8 }}>
+                                                        <div style={{ fontWeight: 600 }}>Number of umas</div>
+                                                    </div>
+                                                    <VerticalBarChart items={umaOverviewItems} maxRowsPerPage={11} />
+                                                </div>
+                                            </div>
+                                            <div style={{ flex: '1 1 420px', minWidth: 320 }}>
+                                                <div style={{ background: '#151515', border: '1px solid #2a2a2a', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                                                    <div className="d-flex align-items-center justify-content-between" style={{ marginBottom: 8 }}>
+                                                        <div style={{ fontWeight: 600 }}>Wins by uma</div>
+                                                    </div>
+                                                    <WinsByUmaChart items={items}/>
+                                                </div>
+                                                <WinsByStyleChart items={styles} />
+                                            </div>
                                         </div>
                                     </div>
                                     {/* Debuffer overview */}

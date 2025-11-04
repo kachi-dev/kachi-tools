@@ -238,7 +238,7 @@ export function computeDebuffSets(
         if (event.paramCount >= 5) {
             const targetMask = event.param[4] >>> 0; // ensure unsigned
             for (let idx = 0; idx < horseCount; idx++) {
-                if (namesByIdx[casterStyle] === namesByIdx[idx]) continue;
+                if (namesByIdx[casterIdx] === namesByIdx[idx]) continue;
                 opponents.add(idx);
                 if ((targetMask & (1 << idx)) === 0) continue;
                 hits.add(idx);
