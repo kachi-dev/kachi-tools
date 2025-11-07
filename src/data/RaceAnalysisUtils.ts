@@ -108,9 +108,11 @@ export function calculateLastSpurtStats(
             break;
         }
         if (horseFrame.hp! <= 0) {
-            const deathDistance = currentDistance;
-            staminaSuccess = '✗';
-            deathDistanceFromFinish = courseLength - deathDistance;
+            const deathDistance = courseLength - currentDistance;
+            if (deathDistance > 1) {
+                staminaSuccess = '✗';
+                deathDistanceFromFinish = deathDistance;
+            }
             break;
         }
     }
