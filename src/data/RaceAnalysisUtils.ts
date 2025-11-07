@@ -84,21 +84,6 @@ export function calculateLastSpurtStats(
 ): LastSpurtStats {
     const horseResult = raceData.horseResult[frameOrder];
     const lastSpurtStartDistance = horseResult.lastSpurtStartDistance!;
-    const lastFrame = raceData.frame[raceData.frame.length - 1];
-    const finishDistance = lastFrame.horseFrame[frameOrder].distance!;
-    
-    let staminaSuccess: '✓' | '✗' = '✓';
-    let deathDistanceFromFinish = 0;
-    
-    for (const frame of raceData.frame) {
-        const horseFrame = frame.horseFrame[frameOrder];
-        if (horseFrame.hp! <= 0) {
-            const deathDistance = horseFrame.distance!;
-            staminaSuccess = '✗';
-            deathDistanceFromFinish = finishDistance - deathDistance;
-            break;
-        }
-    }
     
     const winnerIndex = raceData.horseResult.findIndex(hr => hr.finishOrder === 0);
     let goalInX = 0;
@@ -112,6 +97,23 @@ export function calculateLastSpurtStats(
     }
     
     const courseLength = goalInX > 0 ? goalInX : Math.max(...raceData.frame.map(frame => frame.horseFrame[frameOrder].distance!));
+    
+    let staminaSuccess: '✓' | '✗' = '✓';
+    let deathDistanceFromFinish = 0;
+    
+    for (const frame of raceData.frame) {
+        const horseFrame = frame.horseFrame[frameOrder];
+        const currentDistance = horseFrame.distance!;
+        if (currentDistance >= courseLength) {
+            break;
+        }
+        if (horseFrame.hp! <= 0) {
+            const deathDistance = currentDistance;
+            staminaSuccess = '✗';
+            deathDistanceFromFinish = courseLength - deathDistance;
+            break;
+        }
+    }
     const expectedLastSpurtPosition = (courseLength * 2) / 3;
     
     const baseSpeed = 20.0 - (courseLength - 2000) / 1000.0;

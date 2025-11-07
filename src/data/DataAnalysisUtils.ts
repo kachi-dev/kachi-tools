@@ -22,6 +22,8 @@ export type PlayerWinRates = {
         staminaSurvivalCount?: number,
         staminaSurvivalRate?: number, // percentage (0-100)
         runningStyle?: number,
+        murmurHits?: number,
+        eyesHits?: number,
     }[],
 };
 

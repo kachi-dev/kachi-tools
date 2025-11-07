@@ -139,7 +139,7 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
     }
 
     renderSummary() {
-        const { summary } = this.state;
+        const { summary, races, results, selectedName } = this.state;
         if (!summary) return null;
 
         const getIconUrl = (charaId?: number | null): string | null => {
@@ -147,10 +147,69 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
             try { return require(`../data/umamusume_icons/chr_icon_${charaId}.png`); } catch { return null; }
         };
 
+        const murmurId = 201161;
+        const eyesId = 201441;
+
+        const umaDebuffCounts = new Map<number, { murmurHits: number, eyesHits: number }>();
+        for (const uma of summary.byUma) {
+            umaDebuffCounts.set(uma.trainedCharaId, { murmurHits: 0, eyesHits: 0 });
+        }
+
+        if (selectedName) {
+            for (const race of races) {
+                let raceSim: any;
+                try {
+                    raceSim = deserializeFromBase64(race.raceScenario);
+                } catch {
+                    continue;
+                }
+
+                try {
+                    const parsed = JSON.parse(race.horseInfoRaw);
+                    const list: any[] = Array.isArray(parsed) ? parsed : [parsed];
+                    
+                    const umaIdxInRace = new Map<number, number>();
+                    list.forEach((rh: any) => {
+                        const trainerName = rh['trainer_name'];
+                        if (trainerName === selectedName) {
+                            const trainedCharaId = rh['trained_chara_id'];
+                            const frameOrder = (rh['frame_order'] || 1) - 1;
+                            umaIdxInRace.set(trainedCharaId, frameOrder);
+                        }
+                    });
+
+                    for (const [trainedCharaId, idx] of umaIdxInRace.entries()) {
+                        if (!umaDebuffCounts.has(trainedCharaId)) continue;
+
+                        const murmurDetails = computeDebuffProcDetails(raceSim, race.horseInfoRaw, murmurId);
+                        for (const dproc of murmurDetails) {
+                            if (dproc.hits.has(idx)) {
+                                const counts = umaDebuffCounts.get(trainedCharaId)!;
+                                counts.murmurHits += 1;
+                            }
+                        }
+
+                        const eyesDetails = computeDebuffProcDetails(raceSim, race.horseInfoRaw, eyesId);
+                        for (const dproc of eyesDetails) {
+                            if (dproc.hits.has(idx)) {
+                                const counts = umaDebuffCounts.get(trainedCharaId)!;
+                                counts.eyesHits += 1;
+                            }
+                        }
+                    }
+                } catch {
+                    continue;
+                }
+            }
+        }
+
         const rows = summary.byUma.map(u => {
+            const debuffCounts = umaDebuffCounts.get(u.trainedCharaId) || { murmurHits: 0, eyesHits: 0 };
             return {
                 ...u,
                 trainedChara: this.state.results.find(r => r.trainedChara.trainedCharaId === u.trainedCharaId)?.trainedChara,
+                murmurHits: debuffCounts.murmurHits,
+                eyesHits: debuffCounts.eyesHits,
             };
         });
 
@@ -215,6 +274,13 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
                         </tbody>
                     </Table>
                     {tc && <CharaProperLabels chara={tc} />}
+                    <Table size="small" className="w-auto m-2">
+                        <tbody>
+                        <tr><td colSpan={2}><strong>Debuffs</strong></td></tr>
+                        <tr><td>Mystifying Murmur</td><td>{row.murmurHits ?? 0}</td></tr>
+                        <tr><td>All-Seeing Eyes</td><td>{row.eyesHits ?? 0}</td></tr>
+                        </tbody>
+                    </Table>
                 </div>;
             },
             showExpandColumn: true,
