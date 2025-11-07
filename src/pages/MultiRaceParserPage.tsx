@@ -139,7 +139,7 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
     }
 
     renderSummary() {
-        const { summary, races, results, selectedName } = this.state;
+        const { summary, races, selectedName } = this.state;
         if (!summary) return null;
 
         const getIconUrl = (charaId?: number | null): string | null => {
