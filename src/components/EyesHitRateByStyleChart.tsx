@@ -106,16 +106,17 @@ export default function EyesHitRateByStyleChart(props: EyesHitRateByStyleChartPr
 						const hWithout = Math.round((Math.min(maxValue, Math.max(0, d.withoutSavvy)) / maxValue) * height);
 						return <div key={key} style={{ width: containerW, margin: '0 8px', display: 'flex', justifyContent: 'center' }}>
 							<div style={{ position: 'relative', height: height, width: groupW }}>
-								{/* Without Savvy (left) */}
-								<div style={{ position: 'absolute', bottom: 0, left: 0, height: Math.max(6, hWithout), width: barW, borderRadius: 8, background: `linear-gradient(180deg, ${withoutGradientFrom} 0%, ${withoutGradientTo} 100%)`, boxShadow: glowWithout }} />
-								<div style={{ position: 'absolute', bottom: Math.max(6, hWithout) + 4, left: 0, width: barW, textAlign: 'center', fontSize: 12, color: '#9ca3af' }}>
-									{valueFormatter ? valueFormatter(d.withoutSavvy) : d.withoutSavvy.toFixed(1)}
-								</div>
-								{/* With Savvy (right) */}
-								<div style={{ position: 'absolute', bottom: 0, right: 0, height: Math.max(6, hWith), width: barW, borderRadius: 8, background: `linear-gradient(180deg, ${withGradientFrom} 0%, ${withGradientTo} 100%)`, boxShadow: glowWith }} />
-								<div style={{ position: 'absolute', bottom: Math.max(6, hWith) + 4, right: 0, width: barW, textAlign: 'center', fontSize: 12, color: '#e5e7eb' }}>
+								{/* With Savvy (left) */}
+								<div style={{ position: 'absolute', bottom: 0, left: 0, height: Math.max(6, hWith), width: barW, borderRadius: 8, background: `linear-gradient(180deg, ${withGradientFrom} 0%, ${withGradientTo} 100%)`, boxShadow: glowWith }} />
+								<div style={{ position: 'absolute', bottom: Math.max(6, hWith) + 4, left: 0, width: barW, textAlign: 'center', fontSize: 12, color: '#e5e7eb' }}>
 									{valueFormatter ? valueFormatter(d.withSavvy) : d.withSavvy.toFixed(1)}
 								</div>
+								{/* Without Savvy (right) */}
+								<div style={{ position: 'absolute', bottom: 0, right: 0, height: Math.max(6, hWithout), width: barW, borderRadius: 8, background: `linear-gradient(180deg, ${withoutGradientFrom} 0%, ${withoutGradientTo} 100%)`, boxShadow: glowWithout }} />
+								<div style={{ position: 'absolute', bottom: Math.max(6, hWithout) + 4, right: 0, width: barW, textAlign: 'center', fontSize: 12, color: '#9ca3af' }}>
+									{valueFormatter ? valueFormatter(d.withoutSavvy) : d.withoutSavvy.toFixed(1)}
+								</div>
+								
 							</div>
 						</div>;
 					})}

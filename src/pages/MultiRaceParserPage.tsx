@@ -3,16 +3,14 @@ import {Alert, Button, Form, Modal, Nav, Spinner, Table, Tab} from "react-bootst
 import BootstrapTable, { ColumnDescription, ExpandRowProps } from "react-bootstrap-table-next";
 import {calculatePlayerWinRates, PlayerWinRates, WinRateInputItem} from "../data/DataAnalysisUtils";
 import {deserializeFromBase64} from "../data/RaceDataParser";
-import { computeDebuffSets, computeDebuffProcDetails } from "../data/RaceAnalysisUtils";
+import { computeDebuffProcDetails } from "../data/RaceAnalysisUtils";
 import UMDatabaseWrapper from "../data/UMDatabaseWrapper";
 import {calculateLastSpurtStats} from "../data/RaceAnalysisUtils";
 import {fromRaceHorseData} from "../data/TrainedCharaData";
 import CharaProperLabels from "../components/CharaProperLabels";
 import WinsByUmaChart, { WinsByUmaItem } from "../components/WinsByUmaChart";
 import WinsByStyleChart, { WinsByStyleItem } from "../components/WinsByStyleChart";
-import SkillOccurrenceChart from "../components/SkillOccurrenceChart";
-import HitRateByStyleChart from "../components/HitRateByStyleChart";
-import EyesHitRateByStyleChart from "../components/EyesHitRateByStyleChart";
+import SkillAnalysisRow from "../components/SkillAnalysisRow";
 import VerticalBarChart, { VerticalBarChartItem } from "../components/VerticalBarChart";
 import * as UMDatabaseUtils from "../data/UMDatabaseUtils";
 
@@ -606,110 +604,7 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
                                 const eyesId = 201441;   // All-Seeing Eyes
                                 const lateSurgerSavvyIds = new Set([201541, 201542]); // Late Surger Savvy
 
-                                // Compute debuffer stats from race events
                                 const { races } = this.state;
-                                let totalMurmur = 0;
-                                let totalEyes = 0;
-                                let racesWithEyes = 0;
-                                let racesWithMurmur = 0;
-                                // Eyes (split by whether caster has Late Surger Savvy)
-                                const eyesDenomByStyleWithSavvy: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
-                                const eyesHitsByStyleWithSavvy: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
-                                const eyesDenomByStyleNoSavvy: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
-                                const eyesHitsByStyleNoSavvy: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
-                                const murmurDenomByStyle: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
-                                const murmurHitsByStyle: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
-
-                                for (const r of races) {
-                                    let raceSim: any;
-                                    try {
-                                        raceSim = deserializeFromBase64(r.raceScenario);
-                                    } catch {
-                                        continue;
-                                    }
-                                    const horseResults = raceSim.horseResult || [];
-                                    const murmurSets = computeDebuffSets(raceSim, r.horseInfoRaw, murmurId);
-                                    totalMurmur += murmurSets.procs;
-
-                                    if (murmurSets.procs > 0) {
-                                        racesWithMurmur += 1;
-                                        for (const idx of murmurSets.opponents) {
-                                            const s = horseResults[idx]?.runningStyle ?? 0;
-                                            if (s > 0) murmurDenomByStyle[s as 1|2|3|4] += 1;
-                                        }
-                                        for (const idx of murmurSets.hits) {
-                                            const s = horseResults[idx]?.runningStyle ?? 0;
-                                            if (s > 0) murmurHitsByStyle[s as 1|2|3|4] += 1;
-                                        }
-                                    }
-
-                                    // Eyes split logic per race using debuff proc details
-                                    try {
-                                        const parsed = JSON.parse(r.horseInfoRaw);
-                                        const list: any[] = Array.isArray(parsed) ? parsed : [parsed];
-                                        const skillsByIdx: Record<number, Set<number>> = {};
-                                        list.forEach((rh: any) => {
-                                            const idx = (rh['frame_order'] || 1) - 1;
-                                            const arr = Array.isArray(rh['skill_array']) ? rh['skill_array'] : [];
-                                            skillsByIdx[idx] = new Set<number>(arr.map((s: any) => s['skill_id']));
-                                        });
-
-                                        const eyesDetails = computeDebuffProcDetails(raceSim, r.horseInfoRaw, eyesId);
-                                        if (eyesDetails.length > 0) {
-                                            racesWithEyes += 1;
-                                            totalEyes += eyesDetails.length;
-
-                                            for (const dproc of eyesDetails) {
-                                                const hasSavvy = dproc.casterIdx >= 0 && !!skillsByIdx[dproc.casterIdx] && Array.from(skillsByIdx[dproc.casterIdx].values()).some(id => lateSurgerSavvyIds.has(id));
-                                                if (hasSavvy) {
-                                                    dproc.opponents.forEach(idx2 => {
-                                                        const s = horseResults[idx2]?.runningStyle ?? 0;
-                                                        if (s > 0) eyesDenomByStyleWithSavvy[s as 1|2|3|4] += 1;
-                                                    });
-                                                    dproc.hits.forEach(idx2 => {
-                                                        const s = horseResults[idx2]?.runningStyle ?? 0;
-                                                        if (s > 0) eyesHitsByStyleWithSavvy[s as 1|2|3|4] += 1;
-                                                    });
-                                                } else {
-                                                    dproc.opponents.forEach(idx2 => {
-                                                        const s = horseResults[idx2]?.runningStyle ?? 0;
-                                                        if (s > 0) eyesDenomByStyleNoSavvy[s as 1|2|3|4] += 1;
-                                                    });
-                                                    dproc.hits.forEach(idx2 => {
-                                                        const s = horseResults[idx2]?.runningStyle ?? 0;
-                                                        if (s > 0) eyesHitsByStyleNoSavvy[s as 1|2|3|4] += 1;
-                                                    });
-                                                }
-                                            }
-                                        }
-                                    } catch {}
-                                }
-
-                                const totalRaces = races.length || 1;
-                                const murmurAvg = totalMurmur / totalRaces;
-                                const eyesAvg = totalEyes / totalRaces;
-
-                                const eyesDualData = [1,2,3,4].map(s => ({
-                                    key: s,
-                                    label: UMDatabaseUtils.runningStyleLabels[s] || `${s}`,
-                                    withSavvy: (() => {
-                                        const denom = eyesDenomByStyleWithSavvy[s] || 0;
-                                        const hits = eyesHitsByStyleWithSavvy[s] || 0;
-                                        return denom === 0 ? 0 : (hits / denom) * 100;
-                                    })(),
-                                    withoutSavvy: (() => {
-                                        const denom = eyesDenomByStyleNoSavvy[s] || 0;
-                                        const hits = eyesHitsByStyleNoSavvy[s] || 0;
-                                        return denom === 0 ? 0 : (hits / denom) * 100;
-                                    })(),
-                                }));
-
-                                const murmurStylePercents: { style: number, name: string, percent: number }[] = [1,2,3,4].map(s => {
-                                    const denom = murmurDenomByStyle[s] || 0;
-                                    const hits = murmurHitsByStyle[s] || 0;
-                                    const percent = denom === 0 ? 0 : (hits / denom) * 100;
-                                    return { style: s, name: UMDatabaseUtils.runningStyleLabels[s] || `${s}`, percent };
-                                });
 
                                 return <>
                                     <div style={{ background: '#0f0f0f', border: '1px solid #2a2a2a', borderRadius: 8, padding: 12 }}>
@@ -749,71 +644,27 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
                                         <div className="d-flex align-items-center justify-content-between" style={{ marginBottom: 8 }}>
                                             <div style={{ fontWeight: 600 }}>Debuffer overview</div>
                                         </div>
-                                        <div className="d-flex flex-wrap" style={{ gap: 12 }}>
-                                            {/* Skill Occurrence average */}
-                                            {(totalMurmur + totalEyes) === 0 ? (
-                                                <div className="text-muted">No data found.</div>
-                                            ) : (
-                                                <div style={{ flex: '0 0 auto', width: 320 }}>
-                                                    <div style={{ background: '#151515', border: '1px solid #2a2a2a', borderRadius: 8, padding: 12 }}>
-                                                        <div className="d-flex align-items-center justify-content-between" style={{ marginBottom: 8 }}>
-                                                            <div style={{ fontWeight: 600 }}>Skill occurrence frequency</div>
-                                                        </div>
-                                                        <SkillOccurrenceChart data={[
-                                                            { label: 'Mystifying Murmur', value: murmurAvg },
-                                                            { label: 'All-Seeing Eyes', value: eyesAvg },
-                                                        ]} />
-                                                    </div>
-                                                </div>
-                                            )}
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                                            {/* First row: All-Seeing Eyes */}
+                                            <SkillAnalysisRow
+                                                skillName="All-Seeing Eyes"
+                                                skillId={eyesId}
+                                                races={races}
+                                                lateSurgerSavvyIds={lateSurgerSavvyIds}
+                                                isAllSeeingEyes={true}
+                                            />
 
-                                            {/* Eye hit-rate by style (split by Late Surger Savvy) */}
-                                            {racesWithEyes === 0 ? (
-                                                <div className="text-muted">No data found.</div>
-                                            ) : (
-                                                <div style={{ flex: '1 1 420px', minWidth: 320 }}>
-                                                    <div style={{ background: '#151515', border: '1px solid #2a2a2a', borderRadius: 8, padding: 12 }}>
-                                                        <div className="d-flex align-items-center justify-content-between" style={{ marginBottom: 8 }}>
-                                                            <div style={{ fontWeight: 600 }}>Eyes hit-rate by style</div>
-                                                            <div className="d-flex align-items-center" style={{ gap: 12 }}>
-                                                                <div className="d-flex align-items-center" style={{ gap: 6 }}>
-                                                                    <div style={{ width: 12, height: 12, borderRadius: 3, background: 'linear-gradient(180deg, #34d399 0%, #059669 100%)', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.08)' }} />
-                                                                    <div style={{ fontSize: 12, color: '#e5e7eb', whiteSpace: 'nowrap' }}>With Late Surger Savvy</div>
-                                                                </div>
-                                                                <div className="d-flex align-items-center" style={{ gap: 6 }}>
-                                                                    <div style={{ width: 12, height: 12, borderRadius: 3, background: 'linear-gradient(180deg, #60a5fa 0%, #2563eb 100%)', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.08)' }} />
-                                                                    <div style={{ fontSize: 12, color: '#cbd5e1', whiteSpace: 'nowrap' }}>Without Late Surger Savvy</div>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                        <EyesHitRateByStyleChart
-                                                            data={eyesDualData}
-                                                            withGradientFrom="#34d399" withGradientTo="#059669"
-                                                            withoutGradientFrom="#60a5fa" withoutGradientTo="#2563eb"
-                                                            height={240}
-                                                            yMax={100}
-                                                            yTicks={[0,25,50,75,100]}
-                                                            yAxisLabel="Hit-rate %"
-                                                            valueFormatter={(v) => `${v.toFixed(1)}%`}
-                                                        />
-                                                    </div>
-                                                </div>
-                                            )}
+                                            {/* Divider */}
+                                            <div style={{ height: 1, background: 'linear-gradient(90deg, transparent 0%, #2a2a2a 20%, #2a2a2a 80%, transparent 100%)', margin: '4px 0' }} />
 
-                                            {/* Murmur hit-rate by style */}
-                                            {racesWithMurmur === 0 ? (
-                                                <div className="text-muted">No data found.</div>
-                                            ) : (
-                                                <div style={{ flex: '1 1 420px', minWidth: 320 }}>
-                                                    <div style={{ background: '#151515', border: '1px solid #2a2a2a', borderRadius: 8, padding: 12 }}>
-                                                        <div className="d-flex align-items-center justify-content-between" style={{ marginBottom: 8 }}>
-                                                            <div style={{ fontWeight: 600 }}>Murmur hit-rate by style</div>
-                                                        </div>
-                                                        <HitRateByStyleChart items={murmurStylePercents.map(it => ({ name: it.name, percent: it.percent, key: it.style }))}
-                                                                            gradientFrom="#f59e0b" gradientTo="#b45309" />
-                                                    </div>
-                                                </div>
-                                            )}
+                                            {/* Second row: Mystifying Murmur */}
+                                            <SkillAnalysisRow
+                                                skillName="Mystifying Murmur"
+                                                skillId={murmurId}
+                                                races={races}
+                                                lateSurgerSavvyIds={lateSurgerSavvyIds}
+                                                isMystifyingMurmur={true}
+                                            />
                                         </div>
                                     </div>
                                 </>;

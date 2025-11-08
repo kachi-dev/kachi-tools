@@ -266,6 +266,16 @@ export function computeDebuffProcDetails(
 	const horseCount = raceData.horseResult?.length ?? 0;
 	const details: DebuffProcDetail[] = [];
 
+	const namesByIdx: Record<number, string> = {};
+	try {
+		const parsed = JSON.parse(horseInfoRaw);
+		const list = Array.isArray(parsed) ? parsed : [parsed];
+		list.forEach((rh: any) => {
+			const idx = (rh['frame_order'] || 1) - 1;
+			if (idx >= 0) namesByIdx[idx] = rh['trainer_name'] || '';
+		});
+	} catch {}
+
 	for (const wrapper of raceData.event) {
 		const event = wrapper.event!;
 		if (event.type !== RaceSimulateEventData_SimulateEventType.SKILL) continue;
@@ -278,7 +288,7 @@ export function computeDebuffProcDetails(
 		const hits: Set<number> = new Set();
 		const targetMask = event.param[4] >>> 0;
 		for (let idx = 0; idx < horseCount; idx++) {
-			if (idx === casterIdx) continue;
+			if (namesByIdx[casterIdx] === namesByIdx[idx]) continue;
 			opponents.add(idx);
 			if ((targetMask & (1 << idx)) === 0) continue;
 			hits.add(idx);
