@@ -19,7 +19,6 @@ type SkillAnalysisRowProps = {
 export default function SkillAnalysisRow(props: SkillAnalysisRowProps) {
     const { skillName, skillId, races, lateSurgerSavvyIds, isMystifyingMurmur, isAllSeeingEyes } = props;
     
-    let totalProcs = 0;
     const occurrenceCounts: Record<number, number> = {};
     const denomByStyleWithSavvy: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
     const hitsByStyleWithSavvy: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
@@ -88,8 +87,6 @@ export default function SkillAnalysisRow(props: SkillAnalysisRowProps) {
             }
             
             if (skillDetails.length > 0) {
-                totalProcs += skillDetails.length;
-
                 for (const dproc of skillDetails) {
                     const hasSavvy = lateSurgerSavvyIds && dproc.casterIdx >= 0 && !!skillsByIdx[dproc.casterIdx] && 
                         Array.from(skillsByIdx[dproc.casterIdx].values()).some(id => lateSurgerSavvyIds.has(id));
