@@ -4,6 +4,7 @@ import { computeDebuffProcDetails, calculateLastSpurtStats } from "../data/RaceA
 import { deserializeFromBase64 } from "../data/RaceDataParser";
 import SkillOccurrenceChart from "./SkillOccurrenceChart";
 import EyesHitRateByStyleChart from "./EyesHitRateByStyleChart";
+import LineChart from "./LineChart";
 import * as UMDatabaseUtils from "../data/UMDatabaseUtils";
 import { fromRaceHorseData } from "../data/TrainedCharaData";
 
@@ -27,6 +28,8 @@ export default function SkillAnalysisRow(props: SkillAnalysisRowProps) {
     
     const spurtByOccurrence: Record<number, { samples: number, successes: number }> = {};
     const staminaByOccurrence: Record<number, { samples: number, successes: number }> = {};
+    
+    const murmurProcByLateSurgerCount: Record<number, { totalRaces: number, racesWithMurmur: number }> = {};
 
     for (const r of races) {
         let raceSim: RaceSimulateData;
@@ -50,6 +53,27 @@ export default function SkillAnalysisRow(props: SkillAnalysisRowProps) {
             const skillDetails = computeDebuffProcDetails(raceSim, r.horseInfoRaw, skillId);
             const occurrenceCount = skillDetails.length;
             occurrenceCounts[occurrenceCount] = (occurrenceCounts[occurrenceCount] || 0) + 1;
+            
+            if (isMystifyingMurmur) {
+                let lateSurgerCount = 0;
+                for (const rh of list) {
+                    const frameOrder = (rh['frame_order'] || 1) - 1;
+                    if (frameOrder >= 0 && frameOrder < horseResults.length) {
+                        const runningStyle = horseResults[frameOrder]?.runningStyle ?? rh['running_style'] ?? 0;
+                        if (runningStyle === 3) {
+                            lateSurgerCount += 1;
+                        }
+                    }
+                }
+                
+                if (!murmurProcByLateSurgerCount[lateSurgerCount]) {
+                    murmurProcByLateSurgerCount[lateSurgerCount] = { totalRaces: 0, racesWithMurmur: 0 };
+                }
+                murmurProcByLateSurgerCount[lateSurgerCount].totalRaces += 1;
+                if (occurrenceCount > 0) {
+                    murmurProcByLateSurgerCount[lateSurgerCount].racesWithMurmur += 1;
+                }
+            }
             
             if (isMystifyingMurmur || isAllSeeingEyes) {
                 if (!spurtByOccurrence[occurrenceCount]) {
@@ -163,28 +187,43 @@ export default function SkillAnalysisRow(props: SkillAnalysisRowProps) {
         })(),
     }));
 
+    const murmurProcRateByLateSurgerData = [];
+    if (isMystifyingMurmur && Object.keys(murmurProcByLateSurgerCount).length > 0) {
+        const lateSurgerKeys = Object.keys(murmurProcByLateSurgerCount).map(k => parseInt(k)).sort((a, b) => a - b);
+        for (const count of lateSurgerKeys) {
+            const stats = murmurProcByLateSurgerCount[count];
+            const procRate = stats.totalRaces > 0 ? (stats.racesWithMurmur / stats.totalRaces) * 100 : 0;
+            murmurProcRateByLateSurgerData.push({
+                label: `${count}`,
+                value: procRate,
+                key: count,
+            });
+        }
+    }
+
     if (totalRaces === 0 || occurrenceFrequencyData.length === 0) {
         return <div className="text-muted">No {skillName} data found.</div>;
     }
 
     return (
-        <div className="d-flex flex-wrap" style={{ gap: 12 }}>
-            <div style={{ flex: '0 0 auto', width: Math.max(320, occurrenceFrequencyData.length * 80) }}>
-                <div style={{ background: '#151515', border: '1px solid #2a2a2a', borderRadius: 8, padding: 12 }}>
-                    <div className="d-flex align-items-center justify-content-between" style={{ marginBottom: 8 }}>
-                        <div style={{ fontWeight: 600 }}>{skillName} frequency</div>
+        <>
+            <div className="d-flex flex-wrap" style={{ gap: 12 }}>
+                <div style={{ flex: '0 0 auto', width: Math.max(320, occurrenceFrequencyData.length * 80) }}>
+                    <div style={{ background: '#151515', border: '1px solid #2a2a2a', borderRadius: 8, padding: 12 }}>
+                        <div className="d-flex align-items-center justify-content-between" style={{ marginBottom: 8 }}>
+                            <div style={{ fontWeight: 600 }}>{skillName} frequency</div>
+                        </div>
+                        <SkillOccurrenceChart 
+                            data={occurrenceFrequencyData}
+                            yMax={100}
+                            yAxisLabel="% of races"
+                            valueFormatter={(v) => `${v.toFixed(1)}%`}
+                        />
                     </div>
-                    <SkillOccurrenceChart 
-                        data={occurrenceFrequencyData}
-                        yMax={100}
-                        yAxisLabel="% of races"
-                        valueFormatter={(v) => `${v.toFixed(1)}%`}
-                    />
                 </div>
-            </div>
 
-            {(isMystifyingMurmur || isAllSeeingEyes) && rateByOccurrenceData.length > 0 && (
-                <div style={{ flex: '0 0 auto', width: Math.max(320, rateByOccurrenceData.length * 80) }}>
+                {(isMystifyingMurmur || isAllSeeingEyes) && rateByOccurrenceData.length > 0 && (
+                    <div style={{ flex: '0 0 auto', width: Math.max(320, rateByOccurrenceData.length * 80) }}>
                     <div style={{ background: '#151515', border: '1px solid #2a2a2a', borderRadius: 8, padding: 12 }}>
                         <div className="d-flex align-items-center justify-content-between" style={{ marginBottom: 8 }}>
                             <div style={{ fontWeight: 600 }}>
@@ -199,38 +238,67 @@ export default function SkillAnalysisRow(props: SkillAnalysisRowProps) {
                         />
                     </div>
                 </div>
-            )}
+                )}
 
-            <div style={{ flex: '1 1 420px', minWidth: 320 }}>
-                <div style={{ background: '#151515', border: '1px solid #2a2a2a', borderRadius: 8, padding: 12 }}>
-                    <div className="d-flex align-items-center justify-content-between" style={{ marginBottom: 8 }}>
-                        <div style={{ fontWeight: 600 }}>{skillName} hit-rate by style</div>
-                        {lateSurgerSavvyIds && (
-                            <div className="d-flex align-items-center" style={{ gap: 12 }}>
-                                <div className="d-flex align-items-center" style={{ gap: 6 }}>
-                                    <div style={{ width: 12, height: 12, borderRadius: 3, background: 'linear-gradient(180deg, #34d399 0%, #059669 100%)', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.08)' }} />
-                                    <div style={{ fontSize: 12, color: '#e5e7eb', whiteSpace: 'nowrap' }}>With Late Surger Savvy</div>
+                <div style={{ flex: '1 1 420px', minWidth: 320, maxWidth: 600 }}>
+                    <div style={{ background: '#151515', border: '1px solid #2a2a2a', borderRadius: 8, padding: 12 }}>
+                        <div className="d-flex align-items-center justify-content-between" style={{ marginBottom: 8 }}>
+                            <div style={{ fontWeight: 600 }}>{skillName} hit-rate by style</div>
+                            {lateSurgerSavvyIds && (
+                                <div className="d-flex align-items-center" style={{ gap: 12 }}>
+                                    <div className="d-flex align-items-center" style={{ gap: 6 }}>
+                                        <div style={{ width: 12, height: 12, borderRadius: 3, background: 'linear-gradient(180deg, #34d399 0%, #059669 100%)', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.08)' }} />
+                                        <div style={{ fontSize: 12, color: '#e5e7eb', whiteSpace: 'nowrap' }}>With Late Surger Savvy</div>
+                                    </div>
+                                    <div className="d-flex align-items-center" style={{ gap: 6 }}>
+                                        <div style={{ width: 12, height: 12, borderRadius: 3, background: 'linear-gradient(180deg, #60a5fa 0%, #2563eb 100%)', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.08)' }} />
+                                        <div style={{ fontSize: 12, color: '#cbd5e1', whiteSpace: 'nowrap' }}>Without Late Surger Savvy</div>
+                                    </div>
                                 </div>
-                                <div className="d-flex align-items-center" style={{ gap: 6 }}>
-                                    <div style={{ width: 12, height: 12, borderRadius: 3, background: 'linear-gradient(180deg, #60a5fa 0%, #2563eb 100%)', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.08)' }} />
-                                    <div style={{ fontSize: 12, color: '#cbd5e1', whiteSpace: 'nowrap' }}>Without Late Surger Savvy</div>
-                                </div>
-                            </div>
-                        )}
+                            )}
+                        </div>
+                        <EyesHitRateByStyleChart
+                            data={dualData}
+                            withGradientFrom="#34d399" withGradientTo="#059669"
+                            withoutGradientFrom="#60a5fa" withoutGradientTo="#2563eb"
+                            height={240}
+                            yMax={100}
+                            yTicks={[0,25,50,75,100]}
+                            yAxisLabel="Hit-rate %"
+                            valueFormatter={(v) => `${v.toFixed(1)}%`}
+                        />
                     </div>
-                    <EyesHitRateByStyleChart
-                        data={dualData}
-                        withGradientFrom="#34d399" withGradientTo="#059669"
-                        withoutGradientFrom="#60a5fa" withoutGradientTo="#2563eb"
-                        height={240}
-                        yMax={100}
-                        yTicks={[0,25,50,75,100]}
-                        yAxisLabel="Hit-rate %"
-                        valueFormatter={(v) => `${v.toFixed(1)}%`}
-                    />
                 </div>
             </div>
-        </div>
+            
+            {isMystifyingMurmur && murmurProcRateByLateSurgerData.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                    <div style={{ 
+                        background: '#151515', 
+                        border: '1px solid #2a2a2a', 
+                        borderRadius: 8, 
+                        padding: 12,
+                        display: 'inline-block',
+                        width: 'fit-content',
+                        minWidth: Math.max(320 + 48, murmurProcRateByLateSurgerData.length * 60 + 48) + 24 + 16
+                    }}>
+                        <div className="d-flex align-items-center justify-content-between" style={{ marginBottom: 8 }}>
+                            <div style={{ fontWeight: 600 }}>Mystifying Murmur proc %</div>
+                        </div>
+                        <LineChart
+                            data={murmurProcRateByLateSurgerData}
+                            yMax={100}
+                            yTicks={[0, 25, 50, 75, 100]}
+                            yAxisLabel="Proc rate %"
+                            xAxisLabel="Number of late surgers"
+                            valueFormatter={(v) => `${v.toFixed(1)}%`}
+                            lineGradientFrom="#f472b6"
+                            lineGradientTo="#db2777"
+                        />
+                    </div>
+                </div>
+            )}
+        </>
     );
 }
 

@@ -7,6 +7,7 @@ import { computeDebuffProcDetails } from "../data/RaceAnalysisUtils";
 import UMDatabaseWrapper from "../data/UMDatabaseWrapper";
 import {calculateLastSpurtStats} from "../data/RaceAnalysisUtils";
 import {fromRaceHorseData} from "../data/TrainedCharaData";
+import {getCharaActivatedSkillIds} from "../data/RaceDataUtils";
 import CharaProperLabels from "../components/CharaProperLabels";
 import WinsByUmaChart, { WinsByUmaItem } from "../components/WinsByUmaChart";
 import WinsByStyleChart, { WinsByStyleItem } from "../components/WinsByStyleChart";
@@ -149,8 +150,12 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
         const eyesId = 201441;
 
         const umaDebuffCounts = new Map<number, { murmurHits: number, eyesHits: number }>();
+        const skillProcCounts = new Map<number, Map<number, { procCount: number, totalRaces: number }>>();
+        const finishTimes = new Map<number, number[]>();
         for (const uma of summary.byUma) {
             umaDebuffCounts.set(uma.trainedCharaId, { murmurHits: 0, eyesHits: 0 });
+            skillProcCounts.set(uma.trainedCharaId, new Map());
+            finishTimes.set(uma.trainedCharaId, []);
         }
 
         if (selectedName) {
@@ -194,6 +199,32 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
                                 counts.eyesHits += 1;
                             }
                         }
+
+                        const activatedSkillIds = getCharaActivatedSkillIds(raceSim, idx);
+                        const skillProcs = skillProcCounts.get(trainedCharaId);
+                        if (skillProcs) {
+                            const tc = this.state.results.find(r => r.trainedChara.trainedCharaId === trainedCharaId)?.trainedChara;
+                            if (tc) {
+                                for (const skill of tc.skills || []) {
+                                    if (!skillProcs.has(skill.skillId)) {
+                                        skillProcs.set(skill.skillId, { procCount: 0, totalRaces: 0 });
+                                    }
+                                    const stats = skillProcs.get(skill.skillId)!;
+                                    stats.totalRaces += 1;
+                                    if (activatedSkillIds.has(skill.skillId)) {
+                                        stats.procCount += 1;
+                                    }
+                                }
+                            }
+                        }
+
+                        const finishTimeRaw = raceSim.horseResult[idx]?.finishTimeRaw;
+                        if (finishTimeRaw != null) {
+                            const times = finishTimes.get(trainedCharaId);
+                            if (times) {
+                                times.push(finishTimeRaw * 1.18);
+                            }
+                        }
                     }
                 } catch {
                     continue;
@@ -203,13 +234,34 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
 
         const rows = summary.byUma.map(u => {
             const debuffCounts = umaDebuffCounts.get(u.trainedCharaId) || { murmurHits: 0, eyesHits: 0 };
+            const times = finishTimes.get(u.trainedCharaId) || [];
+            let medianTime: number | null = null;
+            
+            if (times.length > 0) {
+                const sorted = [...times].sort((a, b) => a - b);
+                const mid = Math.floor(sorted.length / 2);
+                medianTime = sorted.length % 2 === 0 
+                    ? (sorted[mid - 1] + sorted[mid]) / 2 
+                    : sorted[mid];
+            }
+            
             return {
                 ...u,
                 trainedChara: this.state.results.find(r => r.trainedChara.trainedCharaId === u.trainedCharaId)?.trainedChara,
                 murmurHits: debuffCounts.murmurHits,
                 eyesHits: debuffCounts.eyesHits,
+                medianTime,
             };
         });
+
+        const formatTime = (time: number): string => {
+            const min = Math.floor(time / 60);
+            const sec = time - min * 60;
+            const secStr = sec.toFixed(3);
+            const secParts = secStr.split('.');
+            const secInt = secParts[0].padStart(2, '0');
+            return `${min}:${secInt}.${secParts[1]}`;
+        };
 
         const columns: ColumnDescription<typeof rows[number]>[] = [
             {
@@ -246,32 +298,80 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
             { dataField: 'top3Rate', text: 'Top3%', sort: true, headerStyle: { width: '90px' }, style: { width: '90px', textAlign: 'right' }, formatter: (v) => (v as number).toFixed(2) },
             { dataField: 'spurtRate', text: 'Spurt%', sort: true, headerStyle: { width: '90px' }, style: { width: '90px', textAlign: 'right' }, formatter: (v, row) => row.spurtRate !== undefined ? (row.spurtRate as number).toFixed(2) : '-' },
             { dataField: 'staminaSurvivalRate', text: 'Stamina%', sort: true, headerStyle: { width: '100px' }, style: { width: '100px', textAlign: 'right' }, formatter: (v, row) => row.staminaSurvivalRate !== undefined ? (row.staminaSurvivalRate as number).toFixed(2) : '-' },
+            { dataField: 'medianTime', text: 'Median Time', sort: true, headerStyle: { width: '110px' }, style: { width: '110px', textAlign: 'right', whiteSpace: 'nowrap' }, formatter: (v, row) => row.medianTime !== null ? formatTime(row.medianTime) : '-' },
         ];
 
         const expandRow: ExpandRowProps<typeof rows[number]> = {
             renderer: row => {
                 const tc = row.trainedChara;
+                const skillProcs = skillProcCounts.get(row.trainedCharaId);
+                const times = finishTimes.get(row.trainedCharaId) || [];
+                
+                let fastest: number | null = null;
+                let median: number | null = null;
+                let average: number | null = null;
+                let slowest: number | null = null;
+                
+                if (times.length > 0) {
+                    const sorted = [...times].sort((a, b) => a - b);
+                    fastest = sorted[0];
+                    slowest = sorted[sorted.length - 1];
+                    average = times.reduce((sum, t) => sum + t, 0) / times.length;
+                    const mid = Math.floor(sorted.length / 2);
+                    median = sorted.length % 2 === 0 
+                        ? (sorted[mid - 1] + sorted[mid]) / 2 
+                        : sorted[mid];
+                }
+                
                 return <div className="d-flex flex-row align-items-start">
                     <Table size="small" className="w-auto m-2">
+                        <thead>
+                            <tr>
+                                <th>Skill</th>
+                                <th>Lv</th>
+                                <th>Proc%</th>
+                            </tr>
+                        </thead>
                         <tbody>
-                        {(tc?.skills ?? []).map(cs =>
-                            <tr key={cs.skillId}>
-                                <td>{UMDatabaseWrapper.skillNameWithId(cs.skillId)}</td>
-                                <td>Lv {cs.level}</td>
-                            </tr>,
+                        {(tc?.skills ?? []).map(cs => {
+                            const procStats = skillProcs?.get(cs.skillId);
+                            const procRate = procStats && procStats.totalRaces > 0 
+                                ? (procStats.procCount / procStats.totalRaces) * 100 
+                                : null;
+                            return (
+                                <tr key={cs.skillId}>
+                                    <td>{UMDatabaseWrapper.skillNameWithId(cs.skillId)}</td>
+                                    <td>Lv {cs.level}</td>
+                                    <td>{procRate !== null ? `${procRate.toFixed(1)}%` : '-'}</td>
+                                </tr>
+                            );
+                        })}
+                        </tbody>
+                    </Table>
+                    <div className="d-flex flex-column">
+                        <Table size="small" className="w-auto m-2">
+                            <tbody>
+                            <tr>
+                                <td>Speed</td><td>{tc?.speed ?? '-'}</td>
+                                <td>Stamina</td><td>{tc?.stamina ?? '-'}</td>
+                                <td>Power</td><td>{tc?.pow ?? '-'}</td>
+                                <td>Guts</td><td>{tc?.guts ?? '-'}</td>
+                                <td>Wit</td><td>{tc?.wiz ?? '-'}</td>
+                            </tr>
+                            </tbody>
+                        </Table>
+                        {tc && <CharaProperLabels chara={tc} />}
+                        {times.length > 0 && (
+                            <Table size="small" className="w-auto m-2">
+                                <tbody>
+                                <tr><td>Fastest</td><td>{formatTime(fastest!)}</td></tr>
+                                <tr><td>Median</td><td>{formatTime(median!)}</td></tr>
+                                <tr><td>Average</td><td>{formatTime(average!)}</td></tr>
+                                <tr><td>Slowest</td><td>{formatTime(slowest!)}</td></tr>
+                                </tbody>
+                            </Table>
                         )}
-                        </tbody>
-                    </Table>
-                    <Table size="small" className="w-auto m-2">
-                        <tbody>
-                        <tr><td>Speed</td><td>{tc?.speed ?? '-'}</td></tr>
-                        <tr><td>Stamina</td><td>{tc?.stamina ?? '-'}</td></tr>
-                        <tr><td>Power</td><td>{tc?.pow ?? '-'}</td></tr>
-                        <tr><td>Guts</td><td>{tc?.guts ?? '-'}</td></tr>
-                        <tr><td>Wit</td><td>{tc?.wiz ?? '-'}</td></tr>
-                        </tbody>
-                    </Table>
-                    {tc && <CharaProperLabels chara={tc} />}
+                    </div>
                     <Table size="small" className="w-auto m-2">
                         <tbody>
                         <tr><td colSpan={2}><strong>Debuffs</strong></td></tr>
@@ -376,6 +476,7 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
                     return { epoch: 0, label: '' };
                 })()
             }))
+            .filter(r => r.list.some((rh: any) => rh['trainer_name'] === selectedName))
             .sort((a, b) => (b.dt?.epoch ?? 0) - (a.dt?.epoch ?? 0));
 
         return <Modal show onHide={() => this.setState({ showRaceModal: false })} size="xl" dialogClassName="bg-dark text-white">
