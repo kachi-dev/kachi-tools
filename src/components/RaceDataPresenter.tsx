@@ -37,6 +37,7 @@ import {
     filterCharaTargetedSkills,
     filterRaceEvents,
     getCharaActivatedSkillIds,
+    isOonige,
 } from "../data/RaceDataUtils";
 import {calculateLastSpurtStats, calculateLastSpurtSuccess, LastSpurtStats} from "../data/RaceAnalysisUtils";
 import {fromRaceHorseData, TrainedCharaData} from "../data/TrainedCharaData";
@@ -108,13 +109,13 @@ type CharaTableData = {
 
     activatedSkills: Set<number>,
 
-    lastSpurtSuccess: '✓' | '✗' | '—',
+    lastSpurtSuccess: boolean | null,
     lastSpurtStats: LastSpurtStats,
-    staminaSuccess: '✓' | '✗',
+    staminaSuccess: boolean,
 };
 
 const runningStyleLabel = (horseResultData: RaceSimulateHorseResultData, activatedSkills: Set<number>) => {
-    if (activatedSkills.has(202051)) {
+    if (isOonige(activatedSkills)) {
         return '大逃げ';
     }
     return UMDatabaseUtils.runningStyleLabels[horseResultData.runningStyle!];
@@ -223,13 +224,19 @@ const charaTableColumns: ColumnDescription<CharaTableData>[] = [
         dataField: 'lastSpurtSuccess',
         text: 'LS',
         sort: true,
-        formatter: (cell, row) => <span style={{color: cell === '✓' ? 'green' : cell === '✗' ? 'red' : 'gray'}}>{cell}</span>,
+        formatter: (cell, row) => {
+            const symbol = cell === true ? '✓' : cell === false ? '✗' : '—';
+            return <span style={{color: cell === true ? 'green' : cell === false ? 'red' : 'gray'}}>{symbol}</span>;
+        },
     },
     {
         dataField: 'staminaSuccess',
         text: 'SS',
         sort: true,
-        formatter: (cell, row) => <span style={{color: cell === '✓' ? 'green' : 'red'}}>{cell}</span>,
+        formatter: (cell, row) => {
+            const symbol = cell === true ? '✓' : '✗';
+            return <span style={{color: cell === true ? 'green' : 'red'}}>{symbol}</span>;
+        },
     },
 ];
 
@@ -246,7 +253,7 @@ const charaTableExpandRow: ExpandRowProps<CharaTableData> = {
             )}
             </tbody>
         </Table>
-        {row.lastSpurtStats.success !== '—' && (
+        {row.lastSpurtStats.success !== null && (
             <Table size="small" className="w-auto m-2">
                 <thead>
                     <tr>
@@ -282,7 +289,7 @@ const charaTableExpandRow: ExpandRowProps<CharaTableData> = {
                         <td>Course Length:</td>
                         <td>{row.lastSpurtStats.courseLength.toFixed(0)}m</td>
                     </tr>
-                    {row.lastSpurtStats.staminaSuccess === '✗' && (
+                    {row.lastSpurtStats.staminaSuccess === false && (
                         <tr>
                             <td>HP Died:</td>
                             <td style={{color: 'red'}}>{row.lastSpurtStats.deathDistanceFromFinish.toFixed(0)}m from finish</td>

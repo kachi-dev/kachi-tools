@@ -65,14 +65,14 @@ const styleSpeedCoefData: Record<number, Record<number, number>> = {
 };
 
 export type LastSpurtStats = {
-    success: '✓' | '✗' | '—',
+    success: boolean | null,
     lastSpurtStartDistance: number,
     expectedLastSpurtPosition: number,
     delayDistance: number,
     maxSpurtSpeed: number,
     actualMaxSpeed: number,
     courseLength: number,
-    staminaSuccess: '✓' | '✗',
+    staminaSuccess: boolean,
     deathDistanceFromFinish: number,
 };
 
@@ -98,7 +98,7 @@ export function calculateLastSpurtStats(
     
     const courseLength = goalInX > 0 ? goalInX : Math.max(...raceData.frame.map(frame => frame.horseFrame[frameOrder].distance!));
     
-    let staminaSuccess: '✓' | '✗' = '✓';
+    let staminaSuccess: boolean = true;
     let deathDistanceFromFinish = 0;
     
     for (const frame of raceData.frame) {
@@ -110,7 +110,7 @@ export function calculateLastSpurtStats(
         if (horseFrame.hp! <= 0) {
             const deathDistance = courseLength - currentDistance;
             if (deathDistance > 1) {
-                staminaSuccess = '✗';
+                staminaSuccess = false;
                 deathDistanceFromFinish = deathDistance;
             }
             break;
@@ -137,7 +137,7 @@ export function calculateLastSpurtStats(
 
     if (lastSpurtStartDistance <= 0) {
         return {
-            success: '—',
+            success: null,
             lastSpurtStartDistance: 0,
             expectedLastSpurtPosition,
             delayDistance: 0,
@@ -164,7 +164,7 @@ export function calculateLastSpurtStats(
     
     if (Math.abs(delayDistance) > 10) {
         return {
-            success: '✗',
+            success: false,
             lastSpurtStartDistance,
             expectedLastSpurtPosition,
             delayDistance,
@@ -176,7 +176,7 @@ export function calculateLastSpurtStats(
         };
     }
 
-    const success = actualMaxSpeed > 0 && actualMaxSpeed >= maxSpurtSpeed ? '✓' : '✗';
+    const success = actualMaxSpeed > 0 && actualMaxSpeed >= maxSpurtSpeed;
 
     return {
         success,
@@ -196,7 +196,7 @@ export function calculateLastSpurtSuccess(
     frameOrder: number,
     trainedChara: TrainedCharaData,
     runningStyle: number
-): '✓' | '✗' | '—' {
+): boolean | null {
     return calculateLastSpurtStats(raceData, frameOrder, trainedChara, runningStyle).success;
 }
 

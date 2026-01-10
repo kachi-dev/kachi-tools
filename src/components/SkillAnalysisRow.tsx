@@ -21,10 +21,10 @@ export default function SkillAnalysisRow(props: SkillAnalysisRowProps) {
     const { skillName, skillId, races, lateSurgerSavvyIds, isMystifyingMurmur, isAllSeeingEyes } = props;
     
     const occurrenceCounts: Record<number, number> = {};
-    const denomByStyleWithSavvy: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
-    const hitsByStyleWithSavvy: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
-    const denomByStyleNoSavvy: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
-    const hitsByStyleNoSavvy: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
+    const denomByStyleWithSavvy: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    const hitsByStyleWithSavvy: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    const denomByStyleNoSavvy: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    const hitsByStyleNoSavvy: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
     
     const spurtByOccurrence: Record<number, { samples: number, successes: number }> = {};
     const staminaByOccurrence: Record<number, { samples: number, successes: number }> = {};
@@ -56,22 +56,28 @@ export default function SkillAnalysisRow(props: SkillAnalysisRowProps) {
             
             if (isMystifyingMurmur) {
                 let lateSurgerCount = 0;
+                let hasLateSurgerWithSkill = false;
                 for (const rh of list) {
                     const frameOrder = (rh['frame_order'] || 1) - 1;
                     if (frameOrder >= 0 && frameOrder < horseResults.length) {
                         const runningStyle = horseResults[frameOrder]?.runningStyle ?? rh['running_style'] ?? 0;
                         if (runningStyle === 3) {
                             lateSurgerCount += 1;
+                            if (skillsByIdx[frameOrder]?.has(skillId)) {
+                                hasLateSurgerWithSkill = true;
+                            }
                         }
                     }
                 }
                 
-                if (!murmurProcByLateSurgerCount[lateSurgerCount]) {
-                    murmurProcByLateSurgerCount[lateSurgerCount] = { totalRaces: 0, racesWithMurmur: 0 };
-                }
-                murmurProcByLateSurgerCount[lateSurgerCount].totalRaces += 1;
-                if (occurrenceCount > 0) {
-                    murmurProcByLateSurgerCount[lateSurgerCount].racesWithMurmur += 1;
+                if (hasLateSurgerWithSkill) {
+                    if (!murmurProcByLateSurgerCount[lateSurgerCount]) {
+                        murmurProcByLateSurgerCount[lateSurgerCount] = { totalRaces: 0, racesWithMurmur: 0 };
+                    }
+                    murmurProcByLateSurgerCount[lateSurgerCount].totalRaces += 1;
+                    if (occurrenceCount > 0) {
+                        murmurProcByLateSurgerCount[lateSurgerCount].racesWithMurmur += 1;
+                    }
                 }
             }
             
@@ -93,16 +99,16 @@ export default function SkillAnalysisRow(props: SkillAnalysisRowProps) {
                         const runningStyle = horseResults[frameOrder]?.runningStyle ?? rh['running_style'] ?? 0;
                         const spurtStats = calculateLastSpurtStats(raceSim, frameOrder, trainedChara, runningStyle);
                         
-                        if (isMystifyingMurmur && spurtStats.success !== '—') {
+                        if (isMystifyingMurmur && spurtStats.success !== null) {
                             spurtByOccurrence[occurrenceCount].samples += 1;
-                            if (spurtStats.success === '✓') {
+                            if (spurtStats.success === true) {
                                 spurtByOccurrence[occurrenceCount].successes += 1;
                             }
                         }
                         
                         if (isAllSeeingEyes) {
                             staminaByOccurrence[occurrenceCount].samples += 1;
-                            if (spurtStats.staminaSuccess === '✓') {
+                            if (spurtStats.staminaSuccess === true) {
                                 staminaByOccurrence[occurrenceCount].successes += 1;
                             }
                         }
@@ -118,20 +124,20 @@ export default function SkillAnalysisRow(props: SkillAnalysisRowProps) {
                     if (hasSavvy) {
                         dproc.opponents.forEach(idx2 => {
                             const s = horseResults[idx2]?.runningStyle ?? 0;
-                            if (s > 0) denomByStyleWithSavvy[s as 1|2|3|4] += 1;
+                            if (s > 0) denomByStyleWithSavvy[s as 1|2|3|4|5] += 1;
                         });
                         dproc.hits.forEach(idx2 => {
                             const s = horseResults[idx2]?.runningStyle ?? 0;
-                            if (s > 0) hitsByStyleWithSavvy[s as 1|2|3|4] += 1;
+                            if (s > 0) hitsByStyleWithSavvy[s as 1|2|3|4|5] += 1;
                         });
                     } else {
                         dproc.opponents.forEach(idx2 => {
                             const s = horseResults[idx2]?.runningStyle ?? 0;
-                            if (s > 0) denomByStyleNoSavvy[s as 1|2|3|4] += 1;
+                            if (s > 0) denomByStyleNoSavvy[s as 1|2|3|4|5] += 1;
                         });
                         dproc.hits.forEach(idx2 => {
                             const s = horseResults[idx2]?.runningStyle ?? 0;
-                            if (s > 0) hitsByStyleNoSavvy[s as 1|2|3|4] += 1;
+                            if (s > 0) hitsByStyleNoSavvy[s as 1|2|3|4|5] += 1;
                         });
                     }
                 }
@@ -172,7 +178,7 @@ export default function SkillAnalysisRow(props: SkillAnalysisRowProps) {
         }
     }
 
-    const dualData = [1,2,3,4].map(s => ({
+    const dualData = [5,1,2,3,4].map(s => ({
         key: s,
         label: UMDatabaseUtils.runningStyleLabels[s] || `${s}`,
         withSavvy: (() => {
@@ -240,7 +246,7 @@ export default function SkillAnalysisRow(props: SkillAnalysisRowProps) {
                 </div>
                 )}
 
-                <div style={{ flex: '1 1 420px', minWidth: 320, maxWidth: 600 }}>
+                <div style={{ flex: '1 1 420px', minWidth: 320, maxWidth: 700 }}>
                     <div style={{ background: '#151515', border: '1px solid #2a2a2a', borderRadius: 8, padding: 12 }}>
                         <div className="d-flex align-items-center justify-content-between" style={{ marginBottom: 8 }}>
                             <div style={{ fontWeight: 600 }}>{skillName} hit-rate by style</div>

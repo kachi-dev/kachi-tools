@@ -7,13 +7,15 @@ import { computeDebuffProcDetails } from "../data/RaceAnalysisUtils";
 import UMDatabaseWrapper from "../data/UMDatabaseWrapper";
 import {calculateLastSpurtStats} from "../data/RaceAnalysisUtils";
 import {fromRaceHorseData} from "../data/TrainedCharaData";
-import {getCharaActivatedSkillIds} from "../data/RaceDataUtils";
+import {getCharaActivatedSkillIds, isOonige} from "../data/RaceDataUtils";
 import CharaProperLabels from "../components/CharaProperLabels";
 import WinsByUmaChart, { WinsByUmaItem } from "../components/WinsByUmaChart";
 import WinsByStyleChart, { WinsByStyleItem } from "../components/WinsByStyleChart";
 import SkillAnalysisRow from "../components/SkillAnalysisRow";
 import VerticalBarChart, { VerticalBarChartItem } from "../components/VerticalBarChart";
 import * as UMDatabaseUtils from "../data/UMDatabaseUtils";
+import { RaceSimulateEventData_SimulateEventType } from "../data/race_data_pb";
+import iconsMapping from "../data/umamusume_icons/icons.json";
 
 type MultiRaceParserPageState = {
     loading: boolean,
@@ -141,8 +143,32 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
         const { summary, races, selectedName } = this.state;
         if (!summary) return null;
 
-        const getIconUrl = (charaId?: number | null): string | null => {
+        const transformIconPath = (path: string): string => {
+            return path.replace(/^\/uma-tools\/icons\/chara\//, '');
+        };
+
+        const getIconUrl = (charaId?: number | null, cardId?: number | null): string | null => {
             if (charaId == null) return null;
+            
+            const iconsMap = iconsMapping as Record<string, string>;
+            
+            if (cardId != null) {
+                const cardIdStr = cardId.toString();
+                if (iconsMap[cardIdStr]) {
+                    const transformedPath = transformIconPath(iconsMap[cardIdStr]);
+                    try { return require(`../data/umamusume_icons/${transformedPath}`); } catch { }
+                }
+            }
+            
+            const charaIdStr = charaId.toString();
+            if (iconsMap[charaIdStr]) {
+                const transformedPath = transformIconPath(iconsMap[charaIdStr]);
+                try { return require(`../data/umamusume_icons/${transformedPath}`); } catch { }
+            }
+            
+            if (cardId != null) {
+                try { return require(`../data/umamusume_icons/trained_chr_icon_${charaId}_${cardId}_02.png`); } catch { }
+            }
             try { return require(`../data/umamusume_icons/chr_icon_${charaId}.png`); } catch { return null; }
         };
 
@@ -152,10 +178,14 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
         const umaDebuffCounts = new Map<number, { murmurHits: number, eyesHits: number }>();
         const skillProcCounts = new Map<number, Map<number, { procCount: number, totalRaces: number }>>();
         const finishTimes = new Map<number, number[]>();
+        const competeTopStats = new Map<number, { totalRaces: number, procs: number }>();
+        const competeFightStats = new Map<number, { totalRaces: number, procs: number }>();
         for (const uma of summary.byUma) {
             umaDebuffCounts.set(uma.trainedCharaId, { murmurHits: 0, eyesHits: 0 });
             skillProcCounts.set(uma.trainedCharaId, new Map());
             finishTimes.set(uma.trainedCharaId, []);
+            competeTopStats.set(uma.trainedCharaId, { totalRaces: 0, procs: 0 });
+            competeFightStats.set(uma.trainedCharaId, { totalRaces: 0, procs: 0 });
         }
 
         if (selectedName) {
@@ -225,6 +255,50 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
                                 times.push(finishTimeRaw * 1.18);
                             }
                         }
+
+                        const runningStyle = raceSim.horseResult[idx]?.runningStyle ?? 0;
+                        const activatedSkills = getCharaActivatedSkillIds(raceSim, idx);
+                        const oonige = isOonige(activatedSkills);
+                        
+                        const competeFightStatsForUma = competeFightStats.get(trainedCharaId);
+                        if (competeFightStatsForUma) {
+                            competeFightStatsForUma.totalRaces += 1;
+                            
+                            const competeFightEvents = (raceSim.event || [])
+                                .map((e: any) => e.event!)
+                                .filter((e: any) => e && e.type === RaceSimulateEventData_SimulateEventType.COMPETE_FIGHT);
+                            
+                            for (const event of competeFightEvents) {
+                                if (event.param && event.param.length > 0) {
+                                    const eventFrameOrder = event.param[0];
+                                    if (eventFrameOrder === idx) {
+                                        competeFightStatsForUma.procs += 1;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        
+                        if (runningStyle === 1 && !oonige) {
+                            const stats = competeTopStats.get(trainedCharaId);
+                            if (stats) {
+                                stats.totalRaces += 1;
+                                
+                                const competeTopEvents = (raceSim.event || [])
+                                    .map((e: any) => e.event!)
+                                    .filter((e: any) => e && e.type === RaceSimulateEventData_SimulateEventType.COMPETE_TOP);
+                                
+                                for (const event of competeTopEvents) {
+                                    if (event.param && event.param.length > 0) {
+                                        const eventFrameOrder = event.param[0];
+                                        if (eventFrameOrder === idx) {
+                                            stats.procs += 1;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 } catch {
                     continue;
@@ -235,6 +309,8 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
         const rows = summary.byUma.map(u => {
             const debuffCounts = umaDebuffCounts.get(u.trainedCharaId) || { murmurHits: 0, eyesHits: 0 };
             const times = finishTimes.get(u.trainedCharaId) || [];
+            const competeTop = competeTopStats.get(u.trainedCharaId) || { totalRaces: 0, procs: 0 };
+            const competeFight = competeFightStats.get(u.trainedCharaId) || { totalRaces: 0, procs: 0 };
             let medianTime: number | null = null;
             
             if (times.length > 0) {
@@ -251,6 +327,8 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
                 murmurHits: debuffCounts.murmurHits,
                 eyesHits: debuffCounts.eyesHits,
                 medianTime,
+                competeTopRate: competeTop.totalRaces > 0 ? (competeTop.procs / competeTop.totalRaces) * 100 : null,
+                competeFightRate: competeFight.totalRaces > 0 ? (competeFight.procs / competeFight.totalRaces) * 100 : null,
             };
         });
 
@@ -274,10 +352,19 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
                 headerStyle: { width: '150px' }, style: { width: '150px', whiteSpace: 'nowrap' },
                 formatter: (cell, row) => {
                     const chara = UMDatabaseWrapper.charas[row.charaId];
-                    const url = getIconUrl(row.charaId);
+                    const charaName = chara ? chara.name : '';
+                    const cardId = row.trainedChara?.cardId;
+                    const cardName = cardId ? (UMDatabaseWrapper.cards[cardId]?.name || '') : '';
+                    const cardNameClean = cardName.trim();
+                    const hasBrackets = cardNameClean.startsWith('[') && cardNameClean.endsWith(']');
+                    const cardDisplay = hasBrackets ? cardNameClean : (cardNameClean ? `[${cardNameClean}]` : '');
+                    const displayName = cardId && charaName && cardNameClean !== charaName 
+                        ? `${cardDisplay} ${charaName}` 
+                        : cardNameClean || charaName || row.charaId;
+                    const url = getIconUrl(row.charaId, cardId);
                     return <div className="d-flex align-items-center">
                         {url && <img src={url} alt="icon" style={{width: 24, height: 24, marginRight: 8}}/>}
-                        <span>{chara ? chara.name : row.charaId}</span>
+                        <span>{displayName}</span>
                     </div>;
                 },
             },
@@ -377,6 +464,15 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
                         <tr><td colSpan={2}><strong>Debuffs</strong></td></tr>
                         <tr><td>Mystifying Murmur</td><td>{row.murmurHits ?? 0}</td></tr>
                         <tr><td>All-Seeing Eyes</td><td>{row.eyesHits ?? 0}</td></tr>
+                        </tbody>
+                    </Table>
+                    <Table size="small" className="w-auto m-2">
+                        <tbody>
+                        <tr><td colSpan={2}><strong>Competition Stats</strong></td></tr>
+                        <tr><td>Dueling %</td><td>{row.competeFightRate !== null ? `${row.competeFightRate.toFixed(1)}%` : '-'}</td></tr>
+                        {row.runningStyle === 1 && (
+                            <tr><td>Spot Struggle %</td><td>{row.competeTopRate !== null ? `${row.competeTopRate.toFixed(1)}%` : '-'}</td></tr>
+                        )}
                         </tbody>
                     </Table>
                 </div>;
@@ -699,7 +795,11 @@ export default class MultiRaceParserPage extends React.Component<{}, MultiRacePa
                                         wins,
                                         name: UMDatabaseUtils.runningStyleLabels[style] || `${style}`,
                                     }))
-                                    .sort((a, b) => b.wins - a.wins || a.name.localeCompare(b.name));
+                                    .sort((a, b) => {
+                                        if (a.style === 5) return -1;
+                                        if (b.style === 5) return 1;
+                                        return b.wins - a.wins || a.name.localeCompare(b.name);
+                                    });
 
                                 const murmurId = 201161; // Mystifying Murmur
                                 const eyesId = 201441;   // All-Seeing Eyes

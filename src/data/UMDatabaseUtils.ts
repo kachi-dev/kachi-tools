@@ -82,7 +82,8 @@ export const runningStyleLabels: Record<number, string> = {
     [RaceSimulateHorseResultData_RunningStyle.NIGE]: "Front Runner",
     [RaceSimulateHorseResultData_RunningStyle.SENKO]: "Pace Chaser",
     [RaceSimulateHorseResultData_RunningStyle.SASHI]: "Late Surger",
-    [RaceSimulateHorseResultData_RunningStyle.OIKOMI]: "End Closer"
+    [RaceSimulateHorseResultData_RunningStyle.OIKOMI]: "End Closer",
+    5: "Oonige"
 };
 
 export const motivationLabels: Record<number, string> = {

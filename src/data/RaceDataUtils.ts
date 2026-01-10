@@ -24,3 +24,7 @@ export function filterCharaTargetedSkills(raceSimulateData: RaceSimulateData, fr
             event.param[0] !== frameOrder &&
             event.paramCount! >= 5 && (event.param[4] & mask));
 }
+
+export function isOonige(activatedSkills: Set<number>): boolean {
+    return activatedSkills.has(202051);
+}

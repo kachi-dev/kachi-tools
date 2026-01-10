@@ -33,8 +33,8 @@ export type WinRateInputItem = {
     lastSpurtDistanceRatio?: number,
     zeroHpFrameCount?: number,
     raceId?: string,
-    spurtSuccess?: '✓' | '✗' | '—',
-    staminaSuccess?: '✓' | '✗',
+    spurtSuccess?: boolean | null,
+    staminaSuccess?: boolean,
     runningStyle?: number,
 };
 
@@ -77,9 +77,9 @@ export function calculatePlayerWinRates(results: WinRateInputItem[], playerName:
         const styleCounts = new Map<number, number>();
 
         for (const r of arr) {
-            if (r.spurtSuccess !== undefined) {
+            if (r.spurtSuccess !== undefined && r.spurtSuccess !== null) {
                 spurtSamples += 1;
-                if (r.spurtSuccess === '✓') spurtCount += 1;
+                if (r.spurtSuccess === true) spurtCount += 1;
             } else if (typeof r.lastSpurtDistanceRatio === "number") {
                 spurtSamples += 1;
                 if (r.lastSpurtDistanceRatio > 0) spurtCount += 1;
@@ -87,7 +87,7 @@ export function calculatePlayerWinRates(results: WinRateInputItem[], playerName:
 
             if (r.staminaSuccess !== undefined) {
                 staminaSamples += 1;
-                if (r.staminaSuccess === '✓') staminaSurvivalCount += 1;
+                if (r.staminaSuccess === true) staminaSurvivalCount += 1;
             } else if (typeof r.zeroHpFrameCount === "number") {
                 staminaSamples += 1;
                 if (r.zeroHpFrameCount === 0) staminaSurvivalCount += 1;
